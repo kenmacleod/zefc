@@ -1,0 +1,8 @@
+my array = [1, 2, 3]
+
+array.push(42)
+
+println(array);
+println(array[1]);
+array[1] *= 666;
+println(array[1]);

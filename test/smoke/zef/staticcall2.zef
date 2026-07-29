@@ -1,0 +1,6 @@
+class Foo {
+    static class Bar {
+        static fn call() 42
+    }
+}
+println(Foo.Bar())

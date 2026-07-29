@@ -14,6 +14,9 @@ int zefc_slot_add_o = 0;
 int zefc_slot_sub_o = 0;
 int zefc_slot_mul_o = 0;
 int zefc_slot_toString_o = 0;
+int zefc_slot_push_o = 0;
+int zefc_slot_GET_i = 0;
+int zefc_slot_mul_PUT_i = 0;
 
 namespace {
 

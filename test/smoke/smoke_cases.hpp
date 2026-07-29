@@ -14,6 +14,11 @@ void smoke_super();
 void smoke_staticcall();
 void smoke_nocons();
 void smoke_test7b();
+void smoke_test6();
+void smoke_test8();
+void smoke_test9();
+void smoke_staticcall2();
+void smoke_test10();
 
 } // namespace smoke
 } // namespace zefc

@@ -8,11 +8,16 @@ smoke_cases = [
   'test2',
   'super',
   'staticcall',
+  'test6',
+  'test8',
+  'test9',
+  'staticcall2',
 ]
 
 smoke_error_cases = [
   'nocons',
   'test7b',
+  'test10',
 ]
 
 smoke_sources = files(
@@ -20,6 +25,7 @@ smoke_sources = files(
   'runtime_init.cpp',
   'generated/cstr.cpp',
   'generated/int.cpp',
+  'generated/array.cpp',
   'generated/case_hello.cpp',
   'generated/case_test.cpp',
   'generated/case_precedence.cpp',
@@ -29,8 +35,13 @@ smoke_sources = files(
   'generated/case_test2.cpp',
   'generated/case_super.cpp',
   'generated/case_staticcall.cpp',
+  'generated/case_test6.cpp',
+  'generated/case_test8.cpp',
+  'generated/case_test9.cpp',
+  'generated/case_staticcall2.cpp',
   'generated/case_nocons.cpp',
   'generated/case_test7b.cpp',
+  'generated/case_test10.cpp',
 )
 
 smoke_inc = include_directories('.')

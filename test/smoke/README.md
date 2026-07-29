@@ -17,6 +17,11 @@ End-to-end checks for ZefC-shaped codegen and runtime behavior. Each case mirror
 | `staticcall` | `staticcall.zef` | Static factory / callable class |
 | `nocons` | `nocons.zef` | **Error:** no constructor |
 | `test7b` | `test7b.zef` | **Error:** unconstructed superclass fields |
+| `test6` | `test6.zef` | Inheritance, `super.doShit`, field `+=` |
+| `test8` | `test8.zef` | Array literals, `push`, subscript, `*=` |
+| `test9` | `test9.zef` | Nested class + multi-level closure (result 21) |
+| `staticcall2` | `staticcall2.zef` | Nested static class call |
+| `test10` | `test10.zef` | **Error:** cyclic class hierarchy |
 
 Sources of truth: `expected/<case>.stdout` or `.stderr` (from Zef `.expected` / `.error`). Reference `.zef` files under `zef/`.
 
@@ -44,7 +49,7 @@ Fil-C++ driver: **`fil++`** at
 ./tools/setup-build.sh
 meson compile -C build
 build/test/smoke/zefc-smoke precedence   # one case
-meson test -C build --suite smoke        # all cases (11 today)
+meson test -C build --suite smoke        # all cases (16 today)
 ```
 
 Use `-Duse_filc=false` and plain `meson setup build` for system g++.

@@ -24,6 +24,11 @@ static const Case kCases[] = {
   {"staticcall", smoke_staticcall},
   {"nocons", smoke_nocons},
   {"test7b", smoke_test7b},
+  {"test6", smoke_test6},
+  {"test8", smoke_test8},
+  {"test9", smoke_test9},
+  {"staticcall2", smoke_staticcall2},
+  {"test10", smoke_test10},
 };
 
 static void
