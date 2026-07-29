@@ -1,0 +1,6 @@
+package foo {
+    fn bar(a, b) { }
+    fn baz a + b
+}
+foo.bar(1, 2)
+println(foo.baz)

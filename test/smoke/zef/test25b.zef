@@ -1,0 +1,4 @@
+my f = fn(a) fn(b) fn(c) a + b + c
+my g = f(1)
+my h = g(2)
+println(h(3))

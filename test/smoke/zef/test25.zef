@@ -1,0 +1,2 @@
+    my f = fn(a) fn(b) fn(c) a + b + c
+    println(f(42)(666)(1410))

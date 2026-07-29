@@ -1,0 +1,3 @@
+    my x = 1
+    my foo = fn (y) x + y
+    println(foo(42))

@@ -1,0 +1,7 @@
+package foo.bar.baz {
+    fn thingy println("hello")
+}
+my p = foo
+my q = p.bar
+my o = q.baz
+o.thingy

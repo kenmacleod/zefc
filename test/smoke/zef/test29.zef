@@ -1,0 +1,2 @@
+    println(6 * 7)
+    println((6).mul(7))

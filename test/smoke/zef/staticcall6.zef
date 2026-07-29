@@ -1,0 +1,6 @@
+class Foo {
+    static class call {
+        static fn call() 42
+    }
+}
+println(Foo())

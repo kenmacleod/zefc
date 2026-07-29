@@ -1,0 +1,4 @@
+package foo.bar {
+    fn thingy println("hello")
+}
+foo.bar.thingy

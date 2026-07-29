@@ -1,0 +1,5 @@
+my x_
+fn x x_ + 42
+fn set_x(value) x_ = value + 666
+x = 1410
+println(x)

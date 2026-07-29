@@ -1,0 +1,5 @@
+package foo.bar.baz {
+    fn thingy println("hello")
+}
+import foo.bar.baz
+thingy

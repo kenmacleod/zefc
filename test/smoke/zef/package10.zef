@@ -1,0 +1,21 @@
+package foo {
+    class Thingy {
+        readable x
+    
+        fn (inX) x = inX
+    }
+
+    accessible y = Thingy("hello")
+
+    fn stuff(o)
+    {
+        println(o.x)
+    }
+
+    fn
+    {
+        stuff(y)
+    }
+}
+
+foo.Thingy

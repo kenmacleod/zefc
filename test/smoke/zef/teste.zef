@@ -1,0 +1,6 @@
+my i = 0
+while (i < 10) {
+    println("hello")
+    i += 1
+}
+

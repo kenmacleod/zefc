@@ -1,0 +1,5 @@
+package foo { }
+fn test println(foo == foo)
+test
+test
+test

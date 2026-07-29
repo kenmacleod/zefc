@@ -1,0 +1,6 @@
+package foo {
+    class Bar {
+        static fn call() 42
+    }
+}
+println(foo.Bar())

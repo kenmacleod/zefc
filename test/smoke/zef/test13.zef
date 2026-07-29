@@ -1,0 +1,2 @@
+println(String(42, 666, "wat"))
+println(String());

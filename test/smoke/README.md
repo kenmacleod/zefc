@@ -31,6 +31,18 @@ End-to-end checks for ZefC-shaped codegen and runtime behavior. Each case mirror
 | `load5`–`load10` | `load5`–`load10.zef` | Package overwrite, `import`, scope/import rules |
 | `load2`, `load3` | `load2`/`load3.zef` | **Error:** loaded locals not visible to caller |
 | `package3`–`package5` | `package3`–`package5.zef` | Merged packages, nested packages, `import` |
+| `package2b`–`package2f` | dotted / chained / multi-`import` packages |
+| `package6`–`package10` | Classes and package fields / init side effects |
+| `package11` | **Error:** unresolved name in package method |
+| `package12`–`package12c` | Package identity (`==`) |
+| `hex`, `test20`, `test29` | Hex literals; Int `mul`/`add` chaining |
+| `test4b`, `test24`, `test25`, `test25b` | Closures / currying |
+| `test22` | Property get/set (`fn x` / `set_x`) |
+| `test33`, `test34`, `testb`, `teste` | `if`/`while`/`break`; simple fn |
+| `test13`, `test37`, `test38` | Multi-arg `String` / `print`/`println` |
+| `staticcall3`–`staticcall6` | Nested/package static callables |
+| `super2` | Inheritance + `super.foo` I/O |
+| `test11`, `test16`–`test18` | **Error:** cyclic class; bare `return`/`break`/`continue` |
 
 Sources of truth: `expected/<case>.stdout` or `.stderr` (from Zef `.expected` / `.error`). Reference `.zef` files under `zef/`.
 
@@ -58,7 +70,7 @@ Fil-C++ driver: **`fil++`** at
 ./tools/setup-build.sh
 meson compile -C build
 build/test/smoke/zefc-smoke precedence   # one case
-meson test -C build --suite smoke        # all cases (31 today)
+meson test -C build --suite smoke        # all cases (69 today)
 ```
 
 Use `-Duse_filc=false` and plain `meson setup build` for system g++.

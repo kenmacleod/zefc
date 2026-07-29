@@ -1,0 +1,7 @@
+class Foo : Bar {
+}
+
+class Bar : Foo {
+}
+
+Bar()
