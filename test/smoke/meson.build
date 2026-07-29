@@ -110,6 +110,7 @@ smoke_sources = files(
   'runtime_init.cpp',
   'generated/cstr.cpp',
   'generated/int.cpp',
+  'generated/double.cpp',
   'generated/array.cpp',
   'generated/loadable_modules.cpp',
   'generated/case_hello.cpp',

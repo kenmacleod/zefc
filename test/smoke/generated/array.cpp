@@ -26,6 +26,7 @@ static id Array__toString_o(id self, int selector, ...);
 static id Array__push_o(id self, int selector, ...);
 static id Array__GET_i(id self, int selector, ...);
 static id Array__mul_PUT_i(id self, int selector, ...);
+static id Array__size_o(id self, int selector, ...);
 
 static id
 Array__toString_o(id self, int selector, ...)
@@ -86,6 +87,13 @@ Array__mul_PUT_i(id self, int selector, ...)
 }
 
 static id
+Array__size_o(id self, int selector, ...)
+{
+  (void)selector;
+  return Int__from_i64(static_cast<long long>(body<Array_>(self)->elems.size()));
+}
+
+static id
 Array__from_ints_impl(std::initializer_list<long long> values)
 {
   Array_* arr = alloc<Array_>();
@@ -93,6 +101,14 @@ Array__from_ints_impl(std::initializer_list<long long> values)
   for (long long v : values) {
     arr->elems.push_back(Int__from_i64(v));
   }
+  return as_id(arr);
+}
+
+static id
+Array__new_impl()
+{
+  Array_* arr = alloc<Array_>();
+  arr->isa_ = Array_vtable;
   return as_id(arr);
 }
 
@@ -105,6 +121,7 @@ array_runtime_init()
   vtable_set(Array_vtable, selector_intern("push_o"), Array__push_o);
   vtable_set(Array_vtable, selector_intern("GET_i"), Array__GET_i);
   vtable_set(Array_vtable, selector_intern("mul_PUT_i"), Array__mul_PUT_i);
+  vtable_set(Array_vtable, selector_intern("size_o"), Array__size_o);
   selector_sites_patch();
 }
 
@@ -117,6 +134,12 @@ Array__from_ints(std::initializer_list<long long> values)
 }
 
 id
+Array__new()
+{
+  return runtime::Array__new_impl();
+}
+
+id
 Array__push(id array, id value)
 {
   return ZEFC_SEND1(array, ZEFC_SITE("push_o"), value);
@@ -126,6 +149,12 @@ id
 Array__at(id array, int index)
 {
   return ZEFC_SEND1(array, ZEFC_SITE("GET_i"), Int__from_i64(index));
+}
+
+int
+Array__size(id array)
+{
+  return static_cast<int>(Int__to_i64(ZEFC_SEND0(array, ZEFC_SITE("size_o"))));
 }
 
 void
