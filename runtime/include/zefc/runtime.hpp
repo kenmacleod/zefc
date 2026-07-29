@@ -1,8 +1,10 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 namespace zefc {
 
@@ -19,6 +21,22 @@ struct id_ {
 };
 
 using id = id_*;
+
+// Zef-style immediate doubles: IEEE bits + magic stored in the id pointer bits.
+// Heap object pointers stay below the tag (Fil-C heap verified). Never deref an immediate.
+inline constexpr uintptr_t kDoubleTagMagic = 0x1000000000000ull;
+
+inline bool
+id_is_double(id v)
+{
+  return reinterpret_cast<uintptr_t>(v) >= kDoubleTagMagic;
+}
+
+inline bool
+id_is_object(id v)
+{
+  return v != nullptr && !id_is_double(v);
+}
 
 // Heap objects use the same header layout as id_ (isa_ first).
 template<typename Body>
