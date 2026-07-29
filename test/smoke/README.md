@@ -42,6 +42,7 @@ C++ has objects / closures / vtables / `send` you can map to the Zef (transpile-
 | `test26`, `test26b`, `test26c`, `test27` | HOF `times`/`foo` invoking closure objects via `call` |
 | `test30` | Instance identity `==` via `eq` send |
 | `patch1` | **ABI acceptance:** load A then B; site cells; vtable growth |
+| `nbody` | ScriptBench n-body: Body fields, Array, Double ops via sends |
 
 ### Behavioral / sequencing
 

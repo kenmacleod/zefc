@@ -86,6 +86,7 @@ smoke_cases = [
   'classinfunction',
   'classinfunction2',
   'patch1',
+  'nbody',
 ]
 
 smoke_error_cases = [
@@ -210,6 +211,7 @@ smoke_sources = files(
   'generated/case_classinfunction.cpp',
   'generated/case_classinfunction2.cpp',
   'generated/case_patch1.cpp',
+  'generated/case_nbody.cpp',
   'generated/case_test21.cpp',
   'generated/case_test28.cpp',
   'generated/case_test39.cpp',

@@ -1,0 +1,187 @@
+# The Computer Language Benchmarks Game
+# https://salsa.debian.org/benchmarksgame-team/benchmarksgame/
+#
+# originally by Kevin Carson
+# modified by Tupteq, Fredrik Johansson, and Daniel Nanz
+# modified by Maciej Fijalkowski
+# 2to3
+# ported to pizlscript by Fil
+
+my PI = 3.14159265358979323
+my SOLAR_MASS = 4. * PI * PI
+my DAYS_PER_YEAR = 365.24
+
+class Body {
+    accessible x, y, z, vx, vy, vz
+    readable mass
+
+    fn (inX, inY, inZ, inVX, inVY, inVZ, inMass)
+    {
+        x = inX
+        y = inY
+        z = inZ
+        vx = inVX
+        vy = inVY
+        vz = inVZ
+        mass = inMass
+    }
+}
+
+class Jupiter : Body {
+    fn () super(
+        4.84143144246472090e+00,
+        -1.16032004402742839e+00,
+        -1.03622044471123109e-01,
+        1.66007664274403694e-03 * DAYS_PER_YEAR,
+        7.69901118419740425e-03 * DAYS_PER_YEAR,
+        -6.90460016972063023e-05 * DAYS_PER_YEAR,
+        9.54791938424326609e-04 * SOLAR_MASS
+    )
+}
+
+class Saturn : Body {
+    fn () super(
+        8.34336671824457987e+00,
+        4.12479856412430479e+00,
+        -4.03523417114321381e-01,
+        -2.76742510726862411e-03 * DAYS_PER_YEAR,
+        4.99852801234917238e-03 * DAYS_PER_YEAR,
+        2.30417297573763929e-05 * DAYS_PER_YEAR,
+        2.85885980666130812e-04 * SOLAR_MASS
+    )
+}
+
+class Uranus : Body {
+    fn () super(
+        1.28943695621391310e+01,
+        -1.51111514016986312e+01,
+        -2.23307578892655734e-01,
+        2.96460137564761618e-03 * DAYS_PER_YEAR,
+        2.37847173959480950e-03 * DAYS_PER_YEAR,
+        -2.96589568540237556e-05 * DAYS_PER_YEAR,
+        4.36624404335156298e-05 * SOLAR_MASS
+    )
+}
+
+class Neptune : Body {
+    fn () super(
+        1.53796971148509165e+01,
+        -2.59193146099879641e+01,
+        1.79258772950371181e-01,
+        2.68067772490389322e-03 * DAYS_PER_YEAR,
+        1.62824170038242295e-03 * DAYS_PER_YEAR,
+        -9.51592254519715870e-05 * DAYS_PER_YEAR,
+        5.15138902046611451e-05 * SOLAR_MASS
+    )
+}
+
+class Sun : Body {
+    fn () super(0., 0., 0., 0., 0., 0., SOLAR_MASS)
+}
+
+my bodies = [Sun(), Jupiter(), Saturn(), Uranus(), Neptune()]
+
+fn offsetMomentum
+{
+    my px = 0.
+    my py = 0.
+    my pz = 0.
+    my i = 0
+    while (i < bodies.size) {
+        my body = bodies[i]
+        my mass = body.mass
+        px += body.vx * mass
+        py += body.vy * mass
+        pz += body.vz * mass
+        i += 1
+    }
+
+    my body = bodies[0]
+    body.vx = -px / SOLAR_MASS
+    body.vy = -py / SOLAR_MASS
+    body.vz = -pz / SOLAR_MASS
+}
+
+fn advance(dt)
+{
+    my i = 0
+    while (i < bodies.size) {
+        my bodyi = bodies[i]
+        my vxi = bodyi.vx
+        my vyi = bodyi.vy
+        my vzi = bodyi.vz
+        my j = i + 1
+        while (j < bodies.size) {
+            my bodyj = bodies[j]
+            my dx = bodyi.x - bodyj.x
+            my dy = bodyi.y - bodyj.y
+            my dz = bodyi.z - bodyj.z
+
+            my d2 = dx * dx + dy * dy + dz * dz
+            my mag = dt / (d2 * d2.sqrt)
+
+            my massj = bodyj.mass
+            vxi -= dx * massj * mag
+            vyi -= dy * massj * mag
+            vzi -= dz * massj * mag
+
+            my massi = bodyi.mass
+            bodyj.vx += dx * massi * mag
+            bodyj.vy += dy * massi * mag
+            bodyj.vz += dz * massi * mag
+
+            j += 1
+        }
+        bodyi.vx = vxi
+        bodyi.vy = vyi
+        bodyi.vz = vzi
+        i += 1
+    }
+
+    i = 0
+    while (i < bodies.size) {
+        my body = bodies[i]
+        body.x += dt * body.vx
+        body.y += dt * body.vy
+        body.z += dt * body.vz
+        i += 1
+    }
+}
+
+fn energy
+{
+    my e = 0.
+
+    my i = 0
+    while (i < bodies.size) {
+        my bodyi = bodies[i]
+
+        e += 0.5 * bodyi.mass * ( bodyi.vx * bodyi.vx + 
+            bodyi.vy * bodyi.vy + bodyi.vz * bodyi.vz )
+
+        my j = i + 1
+        while (j < bodies.size) {
+            my bodyj = bodies[j]
+            my dx = bodyi.x - bodyj.x
+            my dy = bodyi.y - bodyj.y
+            my dz = bodyi.z - bodyj.z
+
+            my distance = (dx * dx + dy * dy + dz * dz).sqrt
+            e -= (bodyi.mass * bodyj.mass) / distance
+            j += 1
+        }
+
+        i += 1
+    }
+    return e
+}
+
+my n = 5000
+offsetMomentum
+println(energy)
+my i = 0
+while (i < n) {
+    advance(0.01)
+    i += 1
+}
+println(energy)

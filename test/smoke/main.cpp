@@ -111,6 +111,7 @@ static const Case kCases[] = {
   {"private3", smoke_private3},
   {"classinfunction", smoke_classinfunction},
   {"classinfunction2", smoke_classinfunction2},
+  {"nbody", smoke_nbody},
   {"test21", smoke_test21},
   {"test28", smoke_test28},
   {"test39", smoke_test39},
