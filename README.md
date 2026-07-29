@@ -36,7 +36,7 @@ More detail: [docs/index.md](docs/index.md), [docs/dispatch-and-loading.md](docs
 
 **Undefined methods.** Selectors that are not implemented on a class's hierarchy are filled with `doesNotUnderstand`.
 
-**Dynamic loading.** Packages can load at run time; vtables grow; selector IDs are assigned at load; call-site immediates are patched once (PIC-style). Object/class mutation remains disallowed. See [docs/dispatch-and-loading.md](docs/dispatch-and-loading.md).
+**Dynamic loading.** Packages can load at run time; vtables grow; selector IDs are assigned at load; call-site immediates are patched once (PIC-style). Object/class mutation remains disallowed. TUs compile independently; runtime package load of compiled modules does not require a source parser. See [docs/dispatch-and-loading.md](docs/dispatch-and-loading.md).
 
 ### Build
 
@@ -48,9 +48,9 @@ More detail: [docs/index.md](docs/index.md), [docs/dispatch-and-loading.md](docs
 2. Meson project, Fil-C++ setup (`tools/setup-build.sh`, native file), minimal shared runtime.
 3. Smoke harness: hand-compiled stand-ins for Zef tests, golden stdout/stderr, mini String/Int/Array runtime ([test/smoke/](test/smoke/)).
 4. Dispatch/load design contract: C++-like hot path, load-time immediate patching ([docs/dispatch-and-loading.md](docs/dispatch-and-loading.md)).
-5. **← We are here** — Implement growable selector registry, vtable growth, and load-time call-site selector patching (replace smoke `zefc_slot_*` scaffolding on the target path).
+5. **← We are here** — Implement growable selector registry, vtable growth, and load-time call-site selector patching (replace smoke `zefc_slot_*` scaffolding on the target path). Multi-module / `dlopen`-style load of **compiled** packages; not blocked on parsing Zef source at `load` time.
 6. ZefC compiler: parse `.zef` / preprocess `.zefc`, emit C++ that matches the dispatch ABI.
-7. Dynamic package modules (e.g. shared objects) and broader coverage of the [Zef](https://zef-lang.dev/) test suite, including `load` / packages.
+7. Broader coverage of the [Zef](https://zef-lang.dev/) test suite (packages, and `load` via AOT modules or compile-on-load).
 8. Packaging and distribution of the compiler and of code ZefC emits.
 
 ## Quick start (smoke)

@@ -16,14 +16,20 @@ This document is the contract for ZefC’s Orchard-style dispatch under dynamic 
 
 Global `zefc_slot_*` variables in today’s smoke runtime are **scaffolding only**. New work must move toward the ABI below.
 
+## Independent translation units (not blocked)
+
+In Zef, `load("path.zef")` is a **runtime** builtin. Parsing the *caller* only builds a call with a string argument; the callee file is opened, parsed, resolved, and evaluated when that call runs. Compiling or parsing the current file does **not** require parsing the loaded file.
+
+ZefC therefore compiles **each TU independently**. Dynamic loading is only a **runtime** concern (map a compiled module, register selectors, grow vtables, patch call-site immediates, run init). Registry / patching / multi-module smoke are **not** blocked on a ZefC source parser or on compile-on-load.
+
 ## Two different “load” stories
 
-| Mechanism | Meaning | Status |
-|-----------|---------|--------|
-| **Zef `load("….zef")`** | Parse and evaluate **source** (Zef interpreter). | Needs a ZefC compiler (or temporary interpreter). Not this doc’s first milestone. |
-| **ZefC package load** | Map a **compiled** module (e.g. shared object), register selectors, grow vtables, patch call sites, then run module init / top-level. | This document. |
+| Mechanism | Meaning | Blocks next milestone? |
+|-----------|---------|------------------------|
+| **ZefC package load** | Map a **compiled** module (e.g. shared object or registered image), register selectors, grow vtables, patch call sites, then run module init / top-level. | **No** — this is the next work; hand-built modules are enough. |
+| **Zef `load("….zef")` as source** | Interpreter: parse and evaluate source at the call. | **No** for dispatch work. Later: either AOT (`load` resolves to a prebuilt module on a search path) or compile-on-load once the compiler exists. |
 
-Smoke may eventually use hand-built `.so` packages to exercise ZefC load before the compiler exists.
+Smoke may use hand-built `.so` (or in-process register) packages to exercise ZefC load before the compiler exists. Faithful Zef `load*.zef` tests that pass a **source** path can wait for AOT packaging or the compiler; they do not gate the dispatch ABI.
 
 ## Call-site ABI (steady state)
 
