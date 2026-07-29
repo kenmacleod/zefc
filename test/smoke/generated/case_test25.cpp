@@ -48,7 +48,7 @@ make_closure1(long long a, long long b)
     if (!Closure1_vtable) {
       Closure1_vtable = vtable_create();
     }
-    vtable_set(Closure1_vtable, zefc_slot_add_o, Closure1__call_o);
+    vtable_set(Closure1_vtable, selector_intern("add_o"), Closure1__call_o);
     ready = true;
   }
   Closure1_* c = alloc<Closure1_>();
@@ -78,7 +78,7 @@ make_closure0(long long a)
     if (!Closure0_vtable) {
       Closure0_vtable = vtable_create();
     }
-    vtable_set(Closure0_vtable, zefc_slot_add_o, Closure0__call_o);
+    vtable_set(Closure0_vtable, selector_intern("add_o"), Closure0__call_o);
     ready = true;
   }
   Closure0_* c = alloc<Closure0_>();
@@ -99,8 +99,8 @@ void
 smoke_test25()
 {
   id g = f_fn(Int__from_i64(42));
-  id h = send(g, zefc_slot_add_o, Int__from_i64(666));
-  id result = send(h, zefc_slot_add_o, Int__from_i64(1410));
+  id h = send(g, ZEFC_SITE("add_o"), Int__from_i64(666));
+  id result = send(h, ZEFC_SITE("add_o"), Int__from_i64(1410));
   println(result);
 }
 

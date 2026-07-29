@@ -28,7 +28,7 @@ static id
 Scope__x_o(id self, int selector, ...)
 {
   (void)selector;
-  return send(body<Scope_>(self)->x_, zefc_slot_add_o, Int__from_i64(42));
+  return send(body<Scope_>(self)->x_, ZEFC_SITE("add_o"), Int__from_i64(42));
 }
 
 static id
@@ -39,7 +39,7 @@ Scope__set_x_o(id self, int selector, ...)
   va_start(ap, selector);
   id value = va_arg(ap, id);
   va_end(ap);
-  body<Scope_>(self)->x_ = send(value, zefc_slot_add_o, Int__from_i64(666));
+  body<Scope_>(self)->x_ = send(value, ZEFC_SITE("add_o"), Int__from_i64(666));
   return null_id();
 }
 

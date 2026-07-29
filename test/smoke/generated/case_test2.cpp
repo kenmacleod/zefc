@@ -4,7 +4,6 @@
 #include "zefc/int_api.hpp"
 #include "zefc/io.hpp"
 #include "zefc/runtime.hpp"
-#include "zefc/selectors.hpp"
 #include "zefc/string_api.hpp"
 #include "smoke_cases.hpp"
 
@@ -18,10 +17,10 @@ smoke_test2()
   id string = String__from_utf8("");
 
   while (x <= 10) {
-    id line = send(String__from_utf8("x = "), zefc_slot_add_o,
-                   ZEFC_SEND0(Int__from_i64(x), zefc_slot_toString_o));
-    line = send(line, zefc_slot_add_o, String__from_utf8("\n"));
-    string = send(string, zefc_slot_add_o, line);
+    id line = send(String__from_utf8("x = "), ZEFC_SITE("add_o"),
+                   ZEFC_SEND0(Int__from_i64(x), ZEFC_SITE("toString_o")));
+    line = send(line, ZEFC_SITE("add_o"), String__from_utf8("\n"));
+    string = send(string, ZEFC_SITE("add_o"), line);
     x += 1;
   }
 

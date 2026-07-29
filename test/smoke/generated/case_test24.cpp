@@ -41,7 +41,7 @@ make_add_closure(long long captured)
     if (!Closure_vtable) {
       Closure_vtable = vtable_create();
     }
-    vtable_set(Closure_vtable, zefc_slot_add_o, Closure__call_o);
+    vtable_set(Closure_vtable, selector_intern("add_o"), Closure__call_o);
     vtable_ready = true;
   }
   Closure_* c = alloc<Closure_>();
@@ -57,7 +57,7 @@ smoke_test24()
 {
   long long x = 1;
   id foo = make_add_closure(x);
-  println(send(foo, zefc_slot_add_o, Int__from_i64(42)));
+  println(send(foo, ZEFC_SITE("add_o"), Int__from_i64(42)));
 }
 
 } // namespace smoke

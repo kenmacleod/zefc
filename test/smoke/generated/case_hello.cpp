@@ -35,11 +35,11 @@ HelloFoo__add_o(id self, int selector, ...)
   va_start(ap, selector);
   id y = va_arg(ap, id);
   va_end(ap);
-  id sx = ZEFC_SEND0(self, zefc_slot_toString_o);
-  id sy = ZEFC_SEND0(y, zefc_slot_toString_o);
+  id sx = ZEFC_SEND0(self, ZEFC_SITE("toString_o"));
+  id sy = ZEFC_SEND0(y, ZEFC_SITE("toString_o"));
   id sep = String__from_utf8(" ");
-  id mid = send(sx, zefc_slot_add_o, sep);
-  id cat = send(mid, zefc_slot_add_o, sy);
+  id mid = send(sx, ZEFC_SITE("add_o"), sep);
+  id cat = send(mid, ZEFC_SITE("add_o"), sy);
   return HelloFoo__new_o(null_id(), 0, cat);
 }
 
@@ -66,8 +66,8 @@ init_hello_foo_vtable()
   if (!HelloFoo_vtable) {
       HelloFoo_vtable = vtable_create();
     }
-  vtable_set(HelloFoo_vtable, zefc_slot_toString_o, HelloFoo__toString_o);
-  vtable_set(HelloFoo_vtable, zefc_slot_add_o, HelloFoo__add_o);
+  vtable_set(HelloFoo_vtable, selector_intern("toString_o"), HelloFoo__toString_o);
+  vtable_set(HelloFoo_vtable, selector_intern("add_o"), HelloFoo__add_o);
 }
 
 } // namespace
@@ -78,7 +78,7 @@ smoke_hello()
   init_hello_foo_vtable();
   id hello = HelloFoo__new_o(null_id(), 0, String__from_utf8("hello"));
   id world = HelloFoo__new_o(null_id(), 0, String__from_utf8("world"));
-  id sum = send(hello, zefc_slot_add_o, world);
+  id sum = send(hello, ZEFC_SITE("add_o"), world);
   println(sum);
 }
 

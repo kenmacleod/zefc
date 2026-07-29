@@ -10,14 +10,6 @@
 
 namespace zefc {
 
-int zefc_slot_add_o = 0;
-int zefc_slot_sub_o = 0;
-int zefc_slot_mul_o = 0;
-int zefc_slot_toString_o = 0;
-int zefc_slot_push_o = 0;
-int zefc_slot_GET_i = 0;
-int zefc_slot_mul_PUT_i = 0;
-
 namespace {
 
 std::map<std::string, int> g_selectors;
@@ -169,8 +161,7 @@ void package_register(const char* name)
 static void
 write_value(id value)
 {
-  // Compat global is patched at init; runtime println uses it until sites land.
-  const id as_string = ZEFC_SEND0(value, zefc_slot_toString_o);
+  const id as_string = ZEFC_SEND0(value, ZEFC_SITE("toString_o"));
   std::fputs(String__cstr(as_string), stdout);
 }
 

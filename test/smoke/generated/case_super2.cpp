@@ -29,7 +29,7 @@ static void
 println_msg(const char* prefix, id x)
 {
   id s = String__from_utf8(prefix);
-  s = send(s, zefc_slot_add_o, ZEFC_SEND0(x, zefc_slot_toString_o));
+  s = send(s, ZEFC_SITE("add_o"), ZEFC_SEND0(x, ZEFC_SITE("toString_o")));
   println(s);
 }
 

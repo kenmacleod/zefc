@@ -29,7 +29,7 @@ Thingy__x_o(id self, int selector, ...)
 {
   (void)selector;
   Thingy_* t = body<Thingy_>(self);
-  return send(t->x, zefc_slot_add_o, Int__from_i64(42));
+  return send(t->x, ZEFC_SITE("add_o"), Int__from_i64(42));
 }
 
 static id
@@ -41,7 +41,7 @@ Thingy__set_x_o(id self, int selector, ...)
   id value = va_arg(ap, id);
   va_end(ap);
   Thingy_* t = body<Thingy_>(self);
-  t->x = send(value, zefc_slot_add_o, Int__from_i64(666));
+  t->x = send(value, ZEFC_SITE("add_o"), Int__from_i64(666));
   return null_id();
 }
 
@@ -75,7 +75,7 @@ smoke_test36()
   id t = Thingy__new(Int__from_i64(1));
   // t.x += 67  →  set_x(get_x() + 67)
   id cur = ZEFC_SEND0(t, slot_x);
-  id summed = send(cur, zefc_slot_add_o, Int__from_i64(67));
+  id summed = send(cur, ZEFC_SITE("add_o"), Int__from_i64(67));
   (void)ZEFC_SEND1(t, slot_set_x, summed);
   println(ZEFC_SEND0(t, slot_x));
 }

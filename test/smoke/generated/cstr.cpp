@@ -73,10 +73,8 @@ string_runtime_init()
 {
   package_register("zefc.runtime.string");
   String_vtable = vtable_create();
-  selector_patch(&zefc_slot_add_o, selector_intern("add_o"));
-  selector_patch(&zefc_slot_toString_o, selector_intern("toString_o"));
-  vtable_set(String_vtable, zefc_slot_toString_o, String__toString_o);
-  vtable_set(String_vtable, zefc_slot_add_o, String__add_o);
+  vtable_set(String_vtable, selector_intern("toString_o"), String__toString_o);
+  vtable_set(String_vtable, selector_intern("add_o"), String__add_o);
   selector_sites_patch();
 }
 

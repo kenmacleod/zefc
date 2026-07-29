@@ -40,9 +40,9 @@ TupleFoo__add_o(id self, int selector, ...)
   TupleFoo_* o = body<TupleFoo_>(other);
   TupleFoo_* s = body<TupleFoo_>(self);
   return TupleFoo__new_ooo(null_id(), 0,
-                           send(s->x, zefc_slot_add_o, o->x),
-                           send(s->y, zefc_slot_add_o, o->y),
-                           send(s->z, zefc_slot_add_o, o->z));
+                           send(s->x, ZEFC_SITE("add_o"), o->x),
+                           send(s->y, ZEFC_SITE("add_o"), o->y),
+                           send(s->z, ZEFC_SITE("add_o"), o->z));
 }
 
 static id
@@ -74,8 +74,8 @@ init_tuple_foo_vtable()
   if (!TupleFoo_vtable) {
       TupleFoo_vtable = vtable_create();
     }
-  vtable_set(TupleFoo_vtable, zefc_slot_add_o, TupleFoo__add_o);
-  vtable_set(TupleFoo_vtable, zefc_slot_toString_o, TupleFoo__toString_o);
+  vtable_set(TupleFoo_vtable, selector_intern("add_o"), TupleFoo__add_o);
+  vtable_set(TupleFoo_vtable, selector_intern("toString_o"), TupleFoo__toString_o);
 }
 
 } // namespace
@@ -86,7 +86,7 @@ smoke_test3()
   init_tuple_foo_vtable();
   id a = TupleFoo__new_ooo(null_id(), 0, Int__from_i64(1), Int__from_i64(2), Int__from_i64(3));
   id b = TupleFoo__new_ooo(null_id(), 0, Int__from_i64(4), Int__from_i64(5), Int__from_i64(6));
-  println(send(a, zefc_slot_add_o, b));
+  println(send(a, ZEFC_SITE("add_o"), b));
 }
 
 } // namespace smoke

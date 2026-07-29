@@ -51,11 +51,11 @@ Bar__thingy_o(id self, int selector, ...)
 {
   (void)selector;
   Bar_* b = body<Bar_>(self);
-  id s = send(b->x, zefc_slot_add_o, b->y);
-  s = send(s, zefc_slot_add_o, b->z);
-  s = send(s, zefc_slot_add_o, b->w);
-  s = send(s, zefc_slot_add_o, b->a);
-  s = send(s, zefc_slot_add_o, b->b);
+  id s = send(b->x, ZEFC_SITE("add_o"), b->y);
+  s = send(s, ZEFC_SITE("add_o"), b->z);
+  s = send(s, ZEFC_SITE("add_o"), b->w);
+  s = send(s, ZEFC_SITE("add_o"), b->a);
+  s = send(s, ZEFC_SITE("add_o"), b->b);
   return s;
 }
 

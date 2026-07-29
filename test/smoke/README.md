@@ -10,7 +10,7 @@ End-to-end checks against Zef goldens from the sibling [Zef](https://github.com/
 
 **`zef/` ↔ `generated/` fidelity varies** — see [Fidelity](#fidelity). Prefer **structure** cases when studying dispatch; many package prints are still stubs. The comment `Generated from … (hand-maintained)` means paired goldens, not that every file is a full lowering.
 
-**Dispatch ABI:** Prefer `ZEFC_SITE("…")` patch cells and `obj->isa_->slots[sel]` sends ([docs/dispatch-and-loading.md](../../docs/dispatch-and-loading.md)). Shared `zefc_slot_*` globals are **compat** (patched once at init); new structure/acceptance cases should use sites. Ideal end state remains instruction-immediate selectors.
+**Dispatch ABI:** Sends use `ZEFC_SITE("…")` per-site cells and `obj->isa_->slots[sel]` ([docs/dispatch-and-loading.md](../../docs/dispatch-and-loading.md)). Shared `zefc_slot_*` globals are gone. Ideal end state: instruction-immediate selectors.
 
 ## Fidelity
 

@@ -71,8 +71,8 @@ Foo__doShit_o(id self, int selector, ...)
 {
   (void)selector;
   Foo_* f = body<Foo_>(self);
-  f->thingy = send(f->thingy, zefc_slot_add_o, Int__from_i64(1));
-  f->stuff = send(f->stuff, zefc_slot_add_o, String__from_utf8("x"));
+  f->thingy = send(f->thingy, ZEFC_SITE("add_o"), Int__from_i64(1));
+  f->stuff = send(f->stuff, ZEFC_SITE("add_o"), String__from_utf8("x"));
   return null_id();
 }
 
@@ -82,10 +82,10 @@ Foo__toString_o(id self, int selector, ...)
   (void)selector;
   Foo_* f = body<Foo_>(self);
   id s = String__from_utf8("Foo<");
-  s = send(s, zefc_slot_add_o, ZEFC_SEND0(f->thingy, zefc_slot_toString_o));
-  s = send(s, zefc_slot_add_o, String__from_utf8(","));
-  s = send(s, zefc_slot_add_o, ZEFC_SEND0(f->stuff, zefc_slot_toString_o));
-  s = send(s, zefc_slot_add_o, String__from_utf8(">"));
+  s = send(s, ZEFC_SITE("add_o"), ZEFC_SEND0(f->thingy, ZEFC_SITE("toString_o")));
+  s = send(s, ZEFC_SITE("add_o"), String__from_utf8(","));
+  s = send(s, ZEFC_SITE("add_o"), ZEFC_SEND0(f->stuff, ZEFC_SITE("toString_o")));
+  s = send(s, ZEFC_SITE("add_o"), String__from_utf8(">"));
   return s;
 }
 
@@ -110,8 +110,8 @@ Bar__doShit_o(id self, int selector, ...)
   // super.doShit
   Foo__doShit_o(self, slot_doShit);
   Bar_* b = body<Bar_>(self);
-  b->whatever = send(b->whatever, zefc_slot_add_o, String__from_utf8("y"));
-  b->blah = send(b->blah, zefc_slot_add_o, Int__from_i64(2));
+  b->whatever = send(b->whatever, ZEFC_SITE("add_o"), String__from_utf8("y"));
+  b->blah = send(b->blah, ZEFC_SITE("add_o"), Int__from_i64(2));
   return null_id();
 }
 
@@ -121,14 +121,14 @@ Bar__toString_o(id self, int selector, ...)
   (void)selector;
   Bar_* b = body<Bar_>(self);
   id s = String__from_utf8("Bar<");
-  s = send(s, zefc_slot_add_o, ZEFC_SEND0(b->thingy, zefc_slot_toString_o));
-  s = send(s, zefc_slot_add_o, String__from_utf8(","));
-  s = send(s, zefc_slot_add_o, ZEFC_SEND0(b->stuff, zefc_slot_toString_o));
-  s = send(s, zefc_slot_add_o, String__from_utf8(","));
-  s = send(s, zefc_slot_add_o, ZEFC_SEND0(b->whatever, zefc_slot_toString_o));
-  s = send(s, zefc_slot_add_o, String__from_utf8(","));
-  s = send(s, zefc_slot_add_o, ZEFC_SEND0(b->blah, zefc_slot_toString_o));
-  s = send(s, zefc_slot_add_o, String__from_utf8(">"));
+  s = send(s, ZEFC_SITE("add_o"), ZEFC_SEND0(b->thingy, ZEFC_SITE("toString_o")));
+  s = send(s, ZEFC_SITE("add_o"), String__from_utf8(","));
+  s = send(s, ZEFC_SITE("add_o"), ZEFC_SEND0(b->stuff, ZEFC_SITE("toString_o")));
+  s = send(s, ZEFC_SITE("add_o"), String__from_utf8(","));
+  s = send(s, ZEFC_SITE("add_o"), ZEFC_SEND0(b->whatever, ZEFC_SITE("toString_o")));
+  s = send(s, ZEFC_SITE("add_o"), String__from_utf8(","));
+  s = send(s, ZEFC_SITE("add_o"), ZEFC_SEND0(b->blah, ZEFC_SITE("toString_o")));
+  s = send(s, ZEFC_SITE("add_o"), String__from_utf8(">"));
   return s;
 }
 
@@ -147,7 +147,7 @@ Bar__new(id crap)
     vtable_set(Foo_vtable, slot_thingy, Foo__thingy_o);
     vtable_set(Foo_vtable, slot_stuff, Foo__stuff_o);
     vtable_set(Foo_vtable, slot_doShit, Foo__doShit_o);
-    vtable_set(Foo_vtable, zefc_slot_toString_o, Foo__toString_o);
+    vtable_set(Foo_vtable, selector_intern("toString_o"), Foo__toString_o);
 
     // Bar inherits Foo getters for thingy/stuff layout-compatible prefix.
     vtable_set(Bar_vtable, slot_thingy, Foo__thingy_o);
@@ -155,16 +155,16 @@ Bar__new(id crap)
     vtable_set(Bar_vtable, slot_whatever, Bar__whatever_o);
     vtable_set(Bar_vtable, slot_blah, Bar__blah_o);
     vtable_set(Bar_vtable, slot_doShit, Bar__doShit_o);
-    vtable_set(Bar_vtable, zefc_slot_toString_o, Bar__toString_o);
+    vtable_set(Bar_vtable, selector_intern("toString_o"), Bar__toString_o);
     ready = true;
   }
 
   Bar_* b = alloc<Bar_>();
   b->isa_ = Bar_vtable;
   // Bar(crap): whatever = crap.toString; blah = crap + 5; super(crap + 10)
-  b->whatever = ZEFC_SEND0(crap, zefc_slot_toString_o);
-  b->blah = send(crap, zefc_slot_add_o, Int__from_i64(5));
-  id super_arg = send(crap, zefc_slot_add_o, Int__from_i64(10));
+  b->whatever = ZEFC_SEND0(crap, ZEFC_SITE("toString_o"));
+  b->blah = send(crap, ZEFC_SITE("add_o"), Int__from_i64(5));
+  id super_arg = send(crap, ZEFC_SITE("add_o"), Int__from_i64(10));
   b->thingy = super_arg;
   b->stuff = String__from_utf8("hello");
   return as_id(b);

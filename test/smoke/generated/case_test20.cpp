@@ -3,7 +3,6 @@
 #include "zefc/dispatch.hpp"
 #include "zefc/int_api.hpp"
 #include "zefc/io.hpp"
-#include "zefc/selectors.hpp"
 #include "smoke_cases.hpp"
 
 namespace zefc {
@@ -13,8 +12,8 @@ void
 smoke_test20()
 {
   id v = Int__from_i64(42);
-  v = send(v, zefc_slot_mul_o, Int__from_i64(666));
-  v = send(v, zefc_slot_add_o, Int__from_i64(1410));
+  v = send(v, ZEFC_SITE("mul_o"), Int__from_i64(666));
+  v = send(v, ZEFC_SITE("add_o"), Int__from_i64(1410));
   println(v);
 }
 

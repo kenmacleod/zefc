@@ -72,12 +72,11 @@ smoke_patch1()
   module_register("patch1/a", module_a);
   module_register("patch1/b", module_b);
 
-  // Call-site cells (one each); patched before send — not zefc_slot_* globals.
-  int& ping_site = ZEFC_SITE("ping_o");
-  int& pong_site = ZEFC_SITE("pong_o");
+  // Call-site cells (one each); lazy-intern on first use — not shared globals.
+  const int ping_site = ZEFC_SITE("ping_o");
+  const int pong_site = ZEFC_SITE("pong_o");
 
   module_load("patch1/a");
-  // module_load ends with zefc_module_barrier() → patches pending sites.
   id obj = make_obj();
   (void)ZEFC_SEND0(obj, ping_site);
 

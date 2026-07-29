@@ -34,7 +34,7 @@ Thingy__new(id x)
     if (!Thingy_vtable) {
       Thingy_vtable = vtable_create();
     }
-    vtable_set(Thingy_vtable, zefc_slot_toString_o, Thingy__toString_o);
+    vtable_set(Thingy_vtable, selector_intern("toString_o"), Thingy__toString_o);
     ready = true;
   }
   Thingy_* t = alloc<Thingy_>();

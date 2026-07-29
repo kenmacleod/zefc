@@ -43,7 +43,7 @@ make_bar(long long a, long long b, long long c)
     if (!Bar_vtable) {
       Bar_vtable = vtable_create();
     }
-    vtable_set(Bar_vtable, zefc_slot_add_o, Bar__call_o);
+    vtable_set(Bar_vtable, selector_intern("add_o"), Bar__call_o);
     ready = true;
   }
   Bar_* o = alloc<Bar_>();
@@ -59,7 +59,7 @@ foo(long long b)
 {
   long long c = 2;
   id bar = make_bar(1, b, c);
-  return send(bar, zefc_slot_add_o, Int__from_i64(42));
+  return send(bar, ZEFC_SITE("add_o"), Int__from_i64(42));
 }
 
 } // namespace

@@ -74,7 +74,7 @@ where `isa_` is a stable `VTable*` (slots array may grow; the handle does not mo
 
 This is the portable step toward instruction-immediate selectors. It removes shared per-send `zefc_slot_*` loads at new sites (each site has its own cell). **Not yet** true `vtable[imm]` in the instruction stream; that remains a follow-on (reloc / text patch under Fil-C W^X).
 
-Compat: `zefc_slot_*` globals still exist and are patched once at runtime init for older smoke call sites.
+Compat: shared `zefc_slot_*` globals have been **removed**. All sends use `ZEFC_SITE` (lazy-intern into a per-site static cell).
 
 **Already-loaded code that later needs a brand-new selector:** only sites that **reference** that selector need patching. Append-only IDs keep old immediates/cells valid. Vtables grow; new slots are `doesNotUnderstand` until the loading module installs methods.
 
@@ -97,10 +97,9 @@ Minimum viable package unit:
 
 ## Scaffolding vs end state
 
-| Today (smoke, mid step A) | Target |
+| Today (smoke, post slot migration) | Target |
 |---------------|--------|
-| `ZEFC_SITE` patch cells + `VTable*` | Instruction-immediate `selector` + flat `zefc_method* isa_` if possible |
-| Compat `zefc_slot_*` still used by some cases | Remove shared globals from hot path entirely |
+| `ZEFC_SITE` patch cells + `VTable*` | Instruction-immediate `selector` + flatter isa if possible |
 | Growable registry + vtable growth | Same |
 | In-process `module_load` | Same ABI with `dlopen` modules later |
 

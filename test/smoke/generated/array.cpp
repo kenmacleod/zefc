@@ -37,7 +37,7 @@ Array__toString_o(id self, int selector, ...)
     if (i > 0) {
       out += ',';
     }
-    id s = ZEFC_SEND0(arr->elems[i], zefc_slot_toString_o);
+    id s = ZEFC_SEND0(arr->elems[i], ZEFC_SITE("toString_o"));
     out += String__cstr(s);
   }
   out += ']';
@@ -101,16 +101,10 @@ array_runtime_init()
 {
   package_register("zefc.runtime.array");
   Array_vtable = vtable_create();
-  if (zefc_slot_toString_o == 0) {
-    selector_patch(&zefc_slot_toString_o, selector_intern("toString_o"));
-  }
-  selector_patch(&zefc_slot_push_o, selector_intern("push_o"));
-  selector_patch(&zefc_slot_GET_i, selector_intern("GET_i"));
-  selector_patch(&zefc_slot_mul_PUT_i, selector_intern("mul_PUT_i"));
-  vtable_set(Array_vtable, zefc_slot_toString_o, Array__toString_o);
-  vtable_set(Array_vtable, zefc_slot_push_o, Array__push_o);
-  vtable_set(Array_vtable, zefc_slot_GET_i, Array__GET_i);
-  vtable_set(Array_vtable, zefc_slot_mul_PUT_i, Array__mul_PUT_i);
+  vtable_set(Array_vtable, selector_intern("toString_o"), Array__toString_o);
+  vtable_set(Array_vtable, selector_intern("push_o"), Array__push_o);
+  vtable_set(Array_vtable, selector_intern("GET_i"), Array__GET_i);
+  vtable_set(Array_vtable, selector_intern("mul_PUT_i"), Array__mul_PUT_i);
   selector_sites_patch();
 }
 
@@ -125,19 +119,19 @@ Array__from_ints(std::initializer_list<long long> values)
 id
 Array__push(id array, id value)
 {
-  return ZEFC_SEND1(array, zefc_slot_push_o, value);
+  return ZEFC_SEND1(array, ZEFC_SITE("push_o"), value);
 }
 
 id
 Array__at(id array, int index)
 {
-  return ZEFC_SEND1(array, zefc_slot_GET_i, Int__from_i64(index));
+  return ZEFC_SEND1(array, ZEFC_SITE("GET_i"), Int__from_i64(index));
 }
 
 void
 Array__mul_assign_at(id array, int index, long long factor)
 {
-  (void)ZEFC_SEND2(array, zefc_slot_mul_PUT_i, Int__from_i64(index), Int__from_i64(factor));
+  (void)ZEFC_SEND2(array, ZEFC_SITE("mul_PUT_i"), Int__from_i64(index), Int__from_i64(factor));
 }
 
 } // namespace zefc

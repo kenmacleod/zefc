@@ -59,7 +59,7 @@ WTFClass__call_o(id self, int selector, ...)
   }
   WTF_* o = alloc<WTF_>();
   o->isa_ = WTF_vtable;
-  o->baz = send(inBaz, zefc_slot_add_o, cls->captured_arg);
+  o->baz = send(inBaz, ZEFC_SITE("add_o"), cls->captured_arg);
   return as_id(o);
 }
 

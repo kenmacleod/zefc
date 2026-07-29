@@ -4,7 +4,6 @@
 #include "zefc/int_api.hpp"
 #include "zefc/io.hpp"
 #include "zefc/runtime.hpp"
-#include "zefc/selectors.hpp"
 #include "smoke_cases.hpp"
 
 namespace zefc {
@@ -25,9 +24,9 @@ smoke_precedence()
   id five = int_lit(5);
   id seven = int_lit(7);
 
-  println(send(two, zefc_slot_add_o, send(three, zefc_slot_mul_o, four)));
-  println(send(send(two, zefc_slot_add_o, three), zefc_slot_mul_o, four));
-  println(send(five, zefc_slot_add_o, send(int_lit(0), zefc_slot_sub_o, seven)));
+  println(send(two, ZEFC_SITE("add_o"), send(three, ZEFC_SITE("mul_o"), four)));
+  println(send(send(two, ZEFC_SITE("add_o"), three), ZEFC_SITE("mul_o"), four));
+  println(send(five, ZEFC_SITE("add_o"), send(int_lit(0), ZEFC_SITE("sub_o"), seven)));
 }
 
 } // namespace smoke

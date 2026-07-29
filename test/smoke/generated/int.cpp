@@ -89,18 +89,10 @@ int_runtime_init()
 {
   package_register("zefc.runtime.int");
   Int_vtable = vtable_create();
-  if (zefc_slot_add_o == 0) {
-    selector_patch(&zefc_slot_add_o, selector_intern("add_o"));
-  }
-  if (zefc_slot_toString_o == 0) {
-    selector_patch(&zefc_slot_toString_o, selector_intern("toString_o"));
-  }
-  selector_patch(&zefc_slot_sub_o, selector_intern("sub_o"));
-  selector_patch(&zefc_slot_mul_o, selector_intern("mul_o"));
-  vtable_set(Int_vtable, zefc_slot_toString_o, Int__toString_o);
-  vtable_set(Int_vtable, zefc_slot_add_o, Int__add_o);
-  vtable_set(Int_vtable, zefc_slot_sub_o, Int__sub_o);
-  vtable_set(Int_vtable, zefc_slot_mul_o, Int__mul_o);
+  vtable_set(Int_vtable, selector_intern("toString_o"), Int__toString_o);
+  vtable_set(Int_vtable, selector_intern("add_o"), Int__add_o);
+  vtable_set(Int_vtable, selector_intern("sub_o"), Int__sub_o);
+  vtable_set(Int_vtable, selector_intern("mul_o"), Int__mul_o);
   selector_sites_patch();
 }
 
