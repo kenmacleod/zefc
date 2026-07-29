@@ -1,0 +1,37 @@
+#include <cstring>
+#include "zefc/runtime.hpp"
+
+@namespace zefc runtime
+
+typedef struct String_ {
+  isa_list* isa_;
+  char* bytes;
+} *String;
+
+@class String
+
+@new() {
+  SELF = (String) zefc_alloc<String_>();
+  SELF->isa_ = &String__isa;
+  SELF->bytes = zefc_alloc_atomic<char>(1);
+  SELF->bytes[0] = '\0';
+  return (id)SELF;
+}
+
+String
+String__from_utf8(const char* utf8) {
+  String s = (String) String__new(nullptr, 0);
+  size_t n = std::strlen(utf8);
+  s->bytes = zefc_alloc_atomic<char>(n + 1);
+  std::memcpy(s->bytes, utf8, n + 1);
+  return s;
+}
+
+@toString() {
+  return self;
+}
+
+const char*
+String__cstr(String self) {
+  return self->bytes;
+}
