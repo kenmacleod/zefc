@@ -1,0 +1,6 @@
+fn foo(x)
+{
+    fn (y) x + y
+}
+
+println(foo(42)(666))

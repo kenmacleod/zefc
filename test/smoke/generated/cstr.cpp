@@ -68,10 +68,10 @@ String__add_o(id self, int selector, ...)
   return as_id(s);
 }
 
-static void
-package_init()
+void
+string_runtime_init()
 {
-  package_register("zefc.runtime");
+  package_register("zefc.runtime.string");
   for (int i = 0; i < kMaxSelectors; ++i) {
     String_vtable[i] = doesNotUnderstand;
   }
@@ -79,12 +79,6 @@ package_init()
   selector_patch(&zefc_slot_toString_o, selector_intern("toString_o"));
   vtable_set(String_vtable, zefc_slot_toString_o, String__toString_o);
   vtable_set(String_vtable, zefc_slot_add_o, String__add_o);
-}
-
-void
-runtime_package_init()
-{
-  package_init();
 }
 
 } // namespace runtime

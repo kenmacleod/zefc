@@ -1,28 +1,50 @@
+smoke_cases = [
+  'hello',
+  'test',
+  'precedence',
+  'test5',
+  'test4',
+  'test3',
+  'test2',
+]
+
 smoke_sources = files(
   'main.cpp',
+  'runtime_init.cpp',
   'generated/cstr.cpp',
-  'generated/example.cpp',
+  'generated/int.cpp',
+  'generated/case_hello.cpp',
+  'generated/case_test.cpp',
+  'generated/case_precedence.cpp',
+  'generated/case_test5.cpp',
+  'generated/case_test4.cpp',
+  'generated/case_test3.cpp',
+  'generated/case_test2.cpp',
 )
+
+smoke_inc = include_directories('.')
 
 smoke_exe = executable(
   'zefc-smoke',
   smoke_sources,
-  include_directories : runtime_inc,
+  include_directories : [runtime_inc, smoke_inc],
   dependencies : [runtime_dep],
   install : false,
 )
 
-expected_stdout_file = meson.current_source_dir() / 'expected' / 'example.stdout'
-
 python3 = find_program('python3')
 
-test(
-  'smoke example stdout',
-  python3,
-  args : [
-    meson.current_source_dir() / 'check_stdout.py',
-    smoke_exe,
-    expected_stdout_file,
-  ],
-  suite : 'smoke',
-)
+foreach case : smoke_cases
+  expected = meson.current_source_dir() / 'expected' / (case + '.stdout')
+  test(
+    'smoke @0@'.format(case),
+    python3,
+    args : [
+      meson.current_source_dir() / 'check_stdout.py',
+      smoke_exe,
+      case,
+      expected,
+    ],
+    suite : 'smoke',
+  )
+endforeach

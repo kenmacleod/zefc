@@ -1,45 +1,55 @@
 # Smoke tests
 
-This directory holds the first end-to-end check for ZefC-shaped codegen and runtime behavior.
+End-to-end checks for ZefC-shaped codegen and runtime behavior. Each case mirrors a test from the sibling [Zef](https://github.com/pizlonator/zef) tree (`../zef/tests/`).
+
+## Tier-1 cases (hand-compiled)
+
+| Case | Zef source | What it exercises |
+|------|------------|-------------------|
+| `hello` | `example.zef` / docs example | String `Foo`, `add`, `println` |
+| `test` | `test.zef` | Minimal `println` |
+| `precedence` | `precedence.zef` | Int `add` / `sub` / `mul`, operator precedence |
+| `test5` | `test5.zef` | `my`, assignment, discarded expression |
+| `test4` | `test4.zef` | Nested function / closure call |
+| `test3` | `test3.zef` | Class with three fields, `add`, `toString` |
+| `test2` | `test2.zef` | `while`, `+=` string build, `print` |
+
+Sources of truth for stdout: `expected/<case>.stdout` (copied from Zef `.zef.expected` where applicable). Reference `.zef` files live under `zef/`.
 
 ## Layout
 
 | Path | Role |
 |------|------|
-| `example.zef` | Zef source input (docs example); future `zefc` compiler input |
-| `runtime/cstr.zefc` | `.zefc` input (Orchard/MOC-style + C++); future compiler input |
-| `generated/*.cpp` | Expected compiler output (**hand-maintained** until `zefc` exists) |
-| `expected/example.stdout` | Golden stdout for `meson test` |
-| `main.cpp` | Calls runtime then example module init (deterministic order; production codegen would use `ZEFC_MODULE_CONSTRUCTOR`) |
+| `zef/*.zef` | Reference inputs (from `../zef/tests/` or docs) |
+| `generated/cstr.cpp`, `int.cpp` | Shared mini-runtime (String, Int) |
+| `generated/case_*.cpp` | Hand-maintained “compiler output” per case |
+| `runtime_init.cpp` | Wires string + int runtime init |
+| `main.cpp` | `zefc-smoke <case>` driver |
+| `check_stdout.py` | Golden stdout + empty stderr check |
+| `expected/*.stdout` | Expected output |
 
-Shared runtime lives in `../../runtime/` (selectors, dispatch, `println`).
+Shared dispatch/IO lives in `../../runtime/`.
 
 ## Build and run
 
-Fil-C++ driver is **`fil++`** (not `filc++`) under the Fil-C install:
-
+Fil-C++ driver: **`fil++`** at  
 `/home/macken01/pizlo/filc-0.678-linux-x86_64/build/bin/fil++`
 
-From the repo root, recommended:
-
 ```bash
-./tools/setup-build.sh          # meson setup build with CXX=fil++
+./tools/setup-build.sh
 meson compile -C build
-build/test/smoke/zefc-smoke     # prints: hello world
-meson test -C build --suite smoke
+build/test/smoke/zefc-smoke precedence   # one case
+meson test -C build --suite smoke        # all 7 cases
 ```
 
-Alternatives:
+Use `-Duse_filc=false` and plain `meson setup build` for system g++.
 
-```bash
-CXX=/home/macken01/pizlo/filc-0.678-linux-x86_64/build/bin/fil++ meson setup build
-meson setup build --native-file meson/native/filc.ini
-```
+## Adding a case
 
-Use `-Duse_filc=false` and plain `meson setup build` for a system g++ build (e.g. CI without Fil-C).
+1. Copy `../zef/tests/foo.zef` and `.expected` into `zef/` and `expected/foo.stdout`.
+2. Add `generated/case_foo.cpp` implementing `void zefc::smoke::smoke_foo()` (use an anonymous namespace for helpers to avoid ODR clashes).
+3. Declare `smoke_foo()` in `smoke_cases.hpp`, register in `main.cpp` and `meson.build` `smoke_cases` list.
 
 ## When the compiler lands
 
-1. Run `zefc` on `example.zef` and `runtime/cstr.zefc`.
-2. Diff (or replace) `generated/*.cpp` with tool output.
-3. `meson test -C build --suite smoke` should stay green without changing golden output.
+Regenerate `generated/case_*.cpp` from `zef/` inputs; goldens should stay aligned with Zef’s `.expected` files.

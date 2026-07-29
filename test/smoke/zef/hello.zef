@@ -1,0 +1,16 @@
+class Foo {
+    # instance field with getter
+    readable x
+
+    # constructor
+    fn (inX) x = inX
+
+    # Operator overloading by name
+    fn add(y) Foo(x.toString + " " + y.toString)
+
+    # Overloading to-string conversion
+    fn toString x
+}
+
+# Prints "hello world" and then a newline
+println(Foo("hello") + Foo("world"))

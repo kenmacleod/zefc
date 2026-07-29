@@ -52,7 +52,6 @@ void vtable_set(zefc_method* vtable, int selector, Fn method)
 }
 
 void package_register(const char* name);
-void println(id value);
 
 id null_id();
 

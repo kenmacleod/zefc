@@ -1,0 +1,26 @@
+class Foo {
+    my x, y, z
+
+    fn (inX, inY, inZ)
+    {
+        x = inX
+        y = inY
+        z = inZ
+    }
+
+    fn x { x }
+    fn y { y }
+    fn z { z }
+
+    fn add(other)
+    {
+        Foo(x + other.x, y + other.y, z + other.z)
+    }
+
+    fn toString
+    {
+        "<" + x.toString + "," + y.toString + "," + z.toString + ">"
+    }
+}
+
+println(Foo(1, 2, 3) + Foo(4, 5, 6))

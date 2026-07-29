@@ -1,0 +1,9 @@
+my x = 1
+my string = ""
+
+while (x <= 10) {
+    string += "x = " + x.toString + "\n"
+    x += 1
+}
+
+print(string)
