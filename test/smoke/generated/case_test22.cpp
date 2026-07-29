@@ -1,20 +1,76 @@
 // Generated from ../zef/tests/test22.zef (hand-maintained).
+// Structure: scope object with x get / set_x; assignment and read via sends.
 
+#include <cstdarg>
+
+#include "zefc/dispatch.hpp"
 #include "zefc/int_api.hpp"
 #include "zefc/io.hpp"
+#include "zefc/runtime.hpp"
+#include "zefc/selectors.hpp"
 #include "smoke_cases.hpp"
 
 namespace zefc {
 namespace smoke {
 
+namespace {
+
+struct Scope_ {
+  zefc_method* isa_;
+  id x_;
+};
+
+static zefc_method Scope_vtable[kMaxSelectors];
+static int slot_x = 0;
+static int slot_set_x = 0;
+
+static id
+Scope__x_o(id self, int selector, ...)
+{
+  (void)selector;
+  return send(body<Scope_>(self)->x_, zefc_slot_add_o, Int__from_i64(42));
+}
+
+static id
+Scope__set_x_o(id self, int selector, ...)
+{
+  (void)selector;
+  std::va_list ap;
+  va_start(ap, selector);
+  id value = va_arg(ap, id);
+  va_end(ap);
+  body<Scope_>(self)->x_ = send(value, zefc_slot_add_o, Int__from_i64(666));
+  return null_id();
+}
+
+static id
+Scope__new()
+{
+  static bool ready = false;
+  if (!ready) {
+    selector_patch(&slot_x, selector_intern("t22_x_o"));
+    selector_patch(&slot_set_x, selector_intern("t22_set_x_o"));
+    for (int i = 0; i < kMaxSelectors; ++i) {
+      Scope_vtable[i] = doesNotUnderstand;
+    }
+    vtable_set(Scope_vtable, slot_x, Scope__x_o);
+    vtable_set(Scope_vtable, slot_set_x, Scope__set_x_o);
+    ready = true;
+  }
+  Scope_* s = alloc<Scope_>();
+  s->isa_ = Scope_vtable;
+  s->x_ = Int__from_i64(0);
+  return as_id(s);
+}
+
+} // namespace
+
 void
 smoke_test22()
 {
-  long long x_ = 0;
-  auto get_x = [&]() -> long long { return x_ + 42; };
-  auto set_x = [&](long long value) { x_ = value + 666; };
-  set_x(1410);
-  println(Int__from_i64(get_x()));
+  id scope = Scope__new();
+  (void)ZEFC_SEND1(scope, slot_set_x, Int__from_i64(1410));
+  println(ZEFC_SEND0(scope, slot_x));
 }
 
 } // namespace smoke

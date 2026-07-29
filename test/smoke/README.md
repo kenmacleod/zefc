@@ -1,73 +1,90 @@
 # Smoke tests
 
-End-to-end checks for ZefC-shaped codegen and runtime behavior. Each case mirrors a test from the sibling [Zef](https://github.com/pizlonator/zef) tree (`../zef/tests/`).
+End-to-end checks against Zef goldens from the sibling [Zef](https://github.com/pizlonator/zef) tree (`../zef/tests/`). Each case has:
 
-**Dispatch ABI:** Today’s hand-compiled cases often use global `zefc_slot_*` loads at each send. That is **scaffolding**, not the target. The intended model is load-time patching of selector immediates so the hot path matches C++ virtual calls; see [docs/dispatch-and-loading.md](../../docs/dispatch-and-loading.md).
+| Path | Role |
+|------|------|
+| `zef/<case>.zef` | Reference Zef source (what the language does) |
+| `generated/case_<case>.cpp` | Hand-maintained stand-in for compiler output |
+| `expected/<case>.stdout` or `.stderr` | Golden from Zef `.expected` / `.error` |
 
-## Tier-1 cases (hand-compiled)
+**`zef/` ↔ `generated/` fidelity varies** — see [Fidelity](#fidelity). Prefer **structure** cases when studying dispatch; many package prints are still stubs. The comment `Generated from … (hand-maintained)` means paired goldens, not that every file is a full lowering.
 
-| Case | Zef source | What it exercises |
-|------|------------|-------------------|
-| `hello` | `example.zef` / docs example | String `Foo`, `add`, `println` |
-| `test` | `test.zef` | Minimal `println` |
-| `precedence` | `precedence.zef` | Int `add` / `sub` / `mul`, operator precedence |
-| `test5` | `test5.zef` | `my`, assignment, discarded expression |
-| `test4` | `test4.zef` | Nested function / closure call |
-| `test3` | `test3.zef` | Class with three fields, `add`, `toString` |
-| `test2` | `test2.zef` | `while`, `+=` string build, `print` |
-| `super` | `super.zef` | Inheritance, `super`, method override |
-| `staticcall` | `staticcall.zef` | Static factory / callable class |
-| `nocons` | `nocons.zef` | **Error:** no constructor |
-| `test7b` | `test7b.zef` | **Error:** unconstructed superclass fields |
-| `test6` | `test6.zef` | Inheritance, `super.doShit`, field `+=` |
-| `test8` | `test8.zef` | Array literals, `push`, subscript, `*=` |
-| `test9` | `test9.zef` | Nested class + multi-level closure (result 21) |
-| `staticcall2` | `staticcall2.zef` | Nested static class call |
-| `test10` | `test10.zef` | **Error:** cyclic class hierarchy |
-| `package1` | `package1.zef` | Top-level package call |
-| `package2` | `package2.zef` | Nested packages |
-| `load1` | `load1.zef` | Runtime `module_load` of compiled `stuff/world` |
-| `load4` | `load4.zef` | Load package module; read `foo.f` / `foo.x` |
-| `load5`–`load10` | `load5`–`load10.zef` | Package overwrite, `import`, scope/import rules |
-| `load2`, `load3` | `load2`/`load3.zef` | **Error:** loaded locals not visible to caller |
-| `package3`–`package5` | `package3`–`package5.zef` | Merged packages, nested packages, `import` |
-| `package2b`–`package2f` | dotted / chained / multi-`import` packages |
-| `package6`–`package10` | Classes and package fields / init side effects |
-| `package11` | **Error:** unresolved name in package method |
-| `package12`–`package12c` | Package identity (`==`) |
-| `hex`, `test20`, `test29` | Hex literals; Int `mul`/`add` chaining |
-| `test4b`, `test24`, `test25`, `test25b` | Closures / currying |
-| `test22` | Property get/set (`fn x` / `set_x`) |
-| `test33`, `test34`, `testb`, `teste` | `if`/`while`/`break`; simple fn |
-| `test13`, `test37`, `test38` | Multi-arg `String` / `print`/`println` |
-| `staticcall3`–`staticcall6` | Nested/package static callables |
-| `super2` | Inheritance + `super.foo` I/O |
-| `test11`, `test16`–`test18` | **Error:** cyclic class; bare `return`/`break`/`continue` |
-| `testc`, `testb2`–`testb4` | Silent/`()` call variants of hello |
-| `test14`–`test15`, `test19`, `test35`, `test42`–`test43` | `break`/`continue`/`return`; if-expr |
-| `test23`, `test26`–`test27` | Nested closures / HOF call patterns |
-| `test30`, `int64`, `duplicateparam` | Identity `==`; 64-bit arith; last duplicate param |
-| `test36`, `accessors`, `accessors2b` | Property/`+=`; readable/accessible fields |
-| `private1`–`private3`, `classinfunction*` | Private methods; class-in-function |
-| `staticcall7` | Deep nested static callable |
-| `test21`, `test28`, `test39`, `accessors2` | **Error:** redeclare / bad method / `error()` / private field |
+**Dispatch ABI:** Even structure cases usually load global `zefc_slot_*` on each send. That is **scaffolding**, not the target. Intended model: load-time patching of selector immediates; see [docs/dispatch-and-loading.md](../../docs/dispatch-and-loading.md).
 
-Sources of truth: `expected/<case>.stdout` or `.stderr` (from Zef `.expected` / `.error`). Reference `.zef` files under `zef/`.
+## Fidelity
+
+Three kinds of hand-compiles. When matching `.zef` to `.cpp`, start from this list — not from the case name.
+
+### Structure
+
+C++ has objects / closures / vtables / `send` you can map to the Zef (transpile-shaped for dispatch prove-out).
+
+| Cases | Notes |
+|-------|--------|
+| `hello` | Class `Foo`, `add`, `println` via sends |
+| `test3` | Multi-field class, `add`, `toString` |
+| `test4`, `test4b`, `test24` | Nested fn / capturing closure (call via `add_o` slot) |
+| `test25`, `test25b`, `test23` | Curried / multi-capture closures |
+| `test9` | `Foo.stuff` → inner closure → `Bar.thingy` |
+| `test6` | `Foo`/`Bar` inheritance, `super.doShit`, field `+=`, `toString` |
+| `super`, `super2` | Override + `super.foo` as superclass method send |
+| `precedence`, `test20`, `test29` | Int `add` / `sub` / `mul` through dispatch |
+| `test2` | `while` + string `add` / `print` |
+| `test8` | Array mini-runtime (`push`, subscript, `*=`) |
+| `test13`, `test37`, `test38` | Multi-part string built with `String`/`Int` sends |
+| `package6`, `package7` | Class instance with field printed via `toString` |
+| `test22`, `test36` | Property get/set (`x` / `set_x`) via sends |
+| `accessors`, `accessors2b` | Readable/accessible (+ private via same-class methods) |
+| `private1`–`private3` | Public → private method / static create chains |
+| `classinfunction`, `classinfunction2` | Fn returns class; ctor captures outer; `baz` get |
+| `staticcall`–`staticcall7` | Callable class / nested static `call` chains |
+| `test26`, `test26b`, `test26c`, `test27` | HOF `times`/`foo` invoking closure objects via `call` |
+| `test30` | Instance identity `==` via `eq` send |
+
+### Behavioral / sequencing
+
+Control flow, load order, or print sequence matches the Zef; little or no method dispatch on user types.
+
+| Cases | Notes |
+|-------|--------|
+| `test`, `test5`, `testc`, `testb`, `testb2`–`testb4`, `teste` | Simple print / locals / loops |
+| `hex`, `int64` | Literals and arith in C++; results boxed for print |
+| `test14`, `test15`, `test19`, `test33`, `test34`, `test35`, `test42`, `test43` | `if` / `while` / `break` / `continue` / `return` as C++ |
+| `package3`, `package4` | Package merge / import **outputs** via string `add` |
+| `load1`–`load10` | In-process `module_load` + package bindings / scope rules |
+
+### Golden stub
+
+Hardcodes the golden result (or empty body). Do **not** expect the C++ to mirror the `.zef` structure.
+
+| Cases | Typical shape |
+|-------|----------------|
+| `package1`, `package2`, `package2b`–`package2f`, `package5`, `package8`–`package10` | Print `"hello"` or empty |
+| `package12`, `package12b`, `package12c` | Print identity `0`/`1` literals |
+| `duplicateparam` | Print literal ints |
+
+### Error stub
+
+Calls `zefc_error("…")` with Zef’s message text; no real rejection logic.
+
+`nocons`, `test7b`, `test10`, `test11`, `test16`–`test18`, `test21`, `test28`, `test39`, `accessors2`, `package11`, `load2`, `load3`
+
+(`load2` / `load3` still run `module_load` first, then error.)
 
 ## Layout
 
 | Path | Role |
 |------|------|
-| `zef/*.zef` | Reference inputs (from `../zef/tests/` or docs) |
-| `generated/loadable_modules.cpp` | Hand-registered compiled modules for `module_load` |
-| `generated/case_*.cpp` | Hand-maintained “compiler output” per case |
-| `runtime_init.cpp` | Wires string + int runtime init |
+| `zef/*.zef` | Reference inputs |
+| `generated/loadable_modules.cpp` | Hand-registered modules for `module_load` |
+| `generated/case_*.cpp` | Hand-maintained stand-ins (see Fidelity) |
+| `runtime_init.cpp` | String + int (+ array) runtime init |
 | `main.cpp` | `zefc-smoke <case>` driver |
-| `check_stdout.py` | Golden stdout + empty stderr check |
-| `check_error.py` | Exit 1 + golden stderr (error cases) |
-| `expected/*.stdout` | Expected output |
+| `check_stdout.py` / `check_error.py` | Golden checks |
+| `expected/*` | Expected stdout / stderr |
 
-Shared dispatch/IO lives in `../../runtime/`.
+Shared dispatch/IO: `../../runtime/`.
 
 ## Build and run
 
@@ -85,10 +102,11 @@ Use `-Duse_filc=false` and plain `meson setup build` for system g++.
 
 ## Adding a case
 
-1. Copy `../zef/tests/foo.zef` and `.expected` into `zef/` and `expected/foo.stdout`.
-2. Add `generated/case_foo.cpp` implementing `void zefc::smoke::smoke_foo()` (use an anonymous namespace for helpers to avoid ODR clashes).
-3. Declare `smoke_foo()` in `smoke_cases.hpp`, register in `main.cpp` and `meson.build` `smoke_cases` list.
+1. Copy `../zef/tests/foo.zef` and `.expected` / `.error` into `zef/` and `expected/`.
+2. Add `generated/case_foo.cpp` implementing `smoke_foo()` (anonymous namespace for helpers).
+3. Prefer **structure** when the case is meant to exercise dispatch; use **stub** only when expanding golden coverage cheaply — and list it under the right fidelity section in this README.
+4. Declare in `smoke_cases.hpp`, register in `main.cpp` and `meson.build`.
 
 ## When the compiler lands
 
-Regenerate `generated/case_*.cpp` from `zef/` inputs; goldens should stay aligned with Zef’s `.expected` files.
+Regenerate `generated/case_*.cpp` from `zef/` inputs; goldens stay aligned with Zef’s `.expected` / `.error`. Fidelity tiers above go away as real lowering replaces stubs.
