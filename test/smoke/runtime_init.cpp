@@ -1,3 +1,4 @@
+#include "zefc/known_selectors.hpp"
 #include "zefc/runtime_bootstrap.hpp"
 
 namespace zefc {
@@ -11,6 +12,7 @@ void array_runtime_init();
 void
 runtime_package_init()
 {
+  known_selectors_init();
   runtime::string_runtime_init();
   runtime::int_runtime_init();
   runtime::double_runtime_init();

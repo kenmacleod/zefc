@@ -1,5 +1,6 @@
 // Generated from ScriptBench/nbody.zef (hand-maintained).
-// Structure: Body accessible fields + Array + Double arithmetic via ZEFC_SITE sends.
+// Structure: Body accessible fields + Array + Double arithmetic via sends.
+// Hot selectors use closed-world ZEFC_SEL_* immediates (vtable[imm]).
 // Inheritance (Jupiter/Saturn/…) flattened to Body ctors; loop indices are C++ ints.
 
 #include <cstdarg>
@@ -9,6 +10,7 @@
 #include "zefc/double_api.hpp"
 #include "zefc/int_api.hpp"
 #include "zefc/io.hpp"
+#include "zefc/known_selectors.hpp"
 #include "zefc/runtime.hpp"
 #include "smoke_cases.hpp"
 
@@ -121,19 +123,19 @@ ensure_body()
     return;
   }
   Body_vtable = vtable_create();
-  vtable_set(Body_vtable, selector_intern("x_o"), Body__x_o);
-  vtable_set(Body_vtable, selector_intern("y_o"), Body__y_o);
-  vtable_set(Body_vtable, selector_intern("z_o"), Body__z_o);
-  vtable_set(Body_vtable, selector_intern("vx_o"), Body__vx_o);
-  vtable_set(Body_vtable, selector_intern("vy_o"), Body__vy_o);
-  vtable_set(Body_vtable, selector_intern("vz_o"), Body__vz_o);
-  vtable_set(Body_vtable, selector_intern("mass_o"), Body__mass_o);
-  vtable_set(Body_vtable, selector_intern("set_x_o"), Body__set_x_o);
-  vtable_set(Body_vtable, selector_intern("set_y_o"), Body__set_y_o);
-  vtable_set(Body_vtable, selector_intern("set_z_o"), Body__set_z_o);
-  vtable_set(Body_vtable, selector_intern("set_vx_o"), Body__set_vx_o);
-  vtable_set(Body_vtable, selector_intern("set_vy_o"), Body__set_vy_o);
-  vtable_set(Body_vtable, selector_intern("set_vz_o"), Body__set_vz_o);
+  vtable_set(Body_vtable, ZEFC_SEL_x_o, Body__x_o);
+  vtable_set(Body_vtable, ZEFC_SEL_y_o, Body__y_o);
+  vtable_set(Body_vtable, ZEFC_SEL_z_o, Body__z_o);
+  vtable_set(Body_vtable, ZEFC_SEL_vx_o, Body__vx_o);
+  vtable_set(Body_vtable, ZEFC_SEL_vy_o, Body__vy_o);
+  vtable_set(Body_vtable, ZEFC_SEL_vz_o, Body__vz_o);
+  vtable_set(Body_vtable, ZEFC_SEL_mass_o, Body__mass_o);
+  vtable_set(Body_vtable, ZEFC_SEL_set_x_o, Body__set_x_o);
+  vtable_set(Body_vtable, ZEFC_SEL_set_y_o, Body__set_y_o);
+  vtable_set(Body_vtable, ZEFC_SEL_set_z_o, Body__set_z_o);
+  vtable_set(Body_vtable, ZEFC_SEL_set_vx_o, Body__set_vx_o);
+  vtable_set(Body_vtable, ZEFC_SEL_set_vy_o, Body__set_vy_o);
+  vtable_set(Body_vtable, ZEFC_SEL_set_vz_o, Body__set_vz_o);
   selector_sites_patch();
 }
 

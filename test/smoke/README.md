@@ -10,7 +10,7 @@ End-to-end checks against Zef goldens from the sibling [Zef](https://github.com/
 
 **`zef/` ↔ `generated/` fidelity varies** — see [Fidelity](#fidelity). Prefer **structure** cases when studying dispatch; many package prints are still stubs. The comment `Generated from … (hand-maintained)` means paired goldens, not that every file is a full lowering.
 
-**Dispatch ABI:** Sends use `ZEFC_SITE("…")` per-site cells and `obj->isa_->slots[sel]` ([docs/dispatch-and-loading.md](../../docs/dispatch-and-loading.md)). Shared `zefc_slot_*` globals are gone. Ideal end state: instruction-immediate selectors.
+**Dispatch ABI:** Known names use closed-world `ZEFC_SEL_*` integer literals (`vtable[imm]`); late/dynamic names use `ZEFC_SITE("…")` cells ([docs/dispatch-and-loading.md](../../docs/dispatch-and-loading.md)). Ideal end state: reloc/text-imm patch for the dynamic set too.
 
 ## Fidelity
 
@@ -42,7 +42,7 @@ C++ has objects / closures / vtables / `send` you can map to the Zef (transpile-
 | `test26`, `test26b`, `test26c`, `test27` | HOF `times`/`foo` invoking closure objects via `call` |
 | `test30` | Instance identity `==` via `eq` send |
 | `patch1` | **ABI acceptance:** load A then B; site cells; vtable growth |
-| `nbody` | ScriptBench n-body: Body fields via sends; Double is immediate (NaN-box) + short-circuit arith |
+| `nbody` | ScriptBench n-body: Body fields via sends; Double immediate + `ZEFC_SEL_*` imm selectors |
 
 ### Behavioral / sequencing
 

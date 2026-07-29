@@ -1,5 +1,6 @@
 #include "zefc/dispatch.hpp"
 #include "zefc/io.hpp"
+#include "zefc/known_selectors.hpp"
 #include "zefc/string_api.hpp"
 
 #include <cstdio>
@@ -65,6 +66,37 @@ selector_intern(const char* mangled_name)
   g_selectors[key] = sel;
   vtables_ensure_capacity(g_next_selector);
   return sel;
+}
+
+void
+selector_reserve(const char* mangled_name, int id)
+{
+  if (id <= 0) {
+    std::fprintf(stderr, "selector_reserve: invalid id %d for %s\n", id, mangled_name);
+    std::exit(1);
+  }
+  const std::string key(mangled_name);
+  const auto it = g_selectors.find(key);
+  if (it != g_selectors.end()) {
+    if (it->second != id) {
+      std::fprintf(stderr, "selector_reserve: %s already id %d, wanted %d\n",
+                   mangled_name, it->second, id);
+      std::exit(1);
+    }
+    return;
+  }
+  for (const auto& entry : g_selectors) {
+    if (entry.second == id) {
+      std::fprintf(stderr, "selector_reserve: id %d already used by %s (reserving %s)\n",
+                   id, entry.first.c_str(), mangled_name);
+      std::exit(1);
+    }
+  }
+  g_selectors[key] = id;
+  if (id + 1 > g_next_selector) {
+    g_next_selector = id + 1;
+  }
+  vtables_ensure_capacity(g_next_selector);
 }
 
 int
@@ -161,7 +193,7 @@ void package_register(const char* name)
 static void
 write_value(id value)
 {
-  const id as_string = ZEFC_SEND0(value, ZEFC_SITE("toString_o"));
+  const id as_string = ZEFC_SEND0(value, ZEFC_SEL_toString_o);
   std::fputs(String__cstr(as_string), stdout);
 }
 

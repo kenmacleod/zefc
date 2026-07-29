@@ -48,7 +48,7 @@ More detail: [docs/index.md](docs/index.md), [docs/dispatch-and-loading.md](docs
 2. Meson project, Fil-C++ setup (`tools/setup-build.sh`, native file), minimal shared runtime.
 3. Smoke harness: hand-compiled stand-ins for Zef tests, golden stdout/stderr, mini String/Int/Array runtime ([test/smoke/](test/smoke/)).
 4. Dispatch/load design contract: C++-like hot path, load-time immediate patching ([docs/dispatch-and-loading.md](docs/dispatch-and-loading.md)).
-5. **Dispatch ABI** — Growable registry, `VTable` growth, `ZEFC_SITE` cells (`patch1`); shared `zefc_slot_*` removed. Double is Zef-style NaN-box immediate + send short-circuit; ScriptBench `nbody` smoke green. **← Next:** instruction-immediate selectors (true C++-like hot path).
+5. **Dispatch ABI** — Growable registry, `VTable` growth, `ZEFC_SITE` cells (`patch1`); NaN-box Doubles; closed-world `ZEFC_SEL_*` immediates for known names (`nbody`). **← Next:** reloc/text-imm patch for late selectors; broader ScriptBench / compiler.
 6. ZefC compiler: parse `.zef` / preprocess `.zefc`, emit C++ that matches the dispatch ABI.
 7. Broader coverage of the [Zef](https://zef-lang.dev/) test suite (packages, and `load` via AOT modules or compile-on-load).
 8. Packaging and distribution of the compiler and of code ZefC emits.

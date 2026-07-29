@@ -62,6 +62,8 @@ id doesNotUnderstand(id self, int selector, ...);
 
 // --- Selector registry (append-only) ---
 int selector_intern(const char* mangled_name);
+// Bind mangled_name to a fixed ID (closed-world immediates). Call before conflicting interns.
+void selector_reserve(const char* mangled_name, int id);
 int selector_count(); // highest assigned ID + 1 (0 unused)
 
 // --- Call-site patch cells ---

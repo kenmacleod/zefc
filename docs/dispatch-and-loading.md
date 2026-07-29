@@ -72,9 +72,11 @@ obj->isa_->slots[site](obj, site, …)
 
 where `isa_` is a stable `VTable*` (slots array may grow; the handle does not move).
 
-This is the portable step toward instruction-immediate selectors. It removes shared per-send `zefc_slot_*` loads at new sites (each site has its own cell). **Not yet** true `vtable[imm]` in the instruction stream; that remains a follow-on (reloc / text patch under Fil-C W^X).
+This is the portable step toward instruction-immediate selectors. It removes shared per-send `zefc_slot_*` loads at new sites (each site has its own cell). **Not yet** true `vtable[imm]` in the instruction stream for arbitrary dynamic names; that remains a follow-on (reloc / text patch under Fil-C W^X).
 
-Compat: shared `zefc_slot_*` globals have been **removed**. All sends use `ZEFC_SITE` (lazy-intern into a per-site static cell).
+**Closed-world immediates (landed):** well-known mangled names are reserved at process start via `selector_reserve` / `known_selectors_init()` into fixed `ZEFC_SEL_*` enum IDs (`known_selectors.hpp`). Hand-compiled or generated code may pass those **integer literals** into `ZEFC_SEND*`, so the compiler can emit `vtable[imm]` with no cell load. `ZEFC_SITE` remains for late/dynamic names (`patch1`, open-ended modules).
+
+Compat: shared `zefc_slot_*` globals have been **removed**. Sends use either `ZEFC_SEL_*` literals or `ZEFC_SITE` (lazy-intern into a per-site static cell).
 
 **Already-loaded code that later needs a brand-new selector:** only sites that **reference** that selector need patching. Append-only IDs keep old immediates/cells valid. Vtables grow; new slots are `doesNotUnderstand` until the loading module installs methods.
 
@@ -97,9 +99,9 @@ Minimum viable package unit:
 
 ## Scaffolding vs end state
 
-| Today (smoke, post slot migration) | Target |
+| Today (smoke) | Target |
 |---------------|--------|
-| `ZEFC_SITE` patch cells + `VTable*` | Instruction-immediate `selector` + flatter isa if possible |
+| `ZEFC_SEL_*` literals for known names; `ZEFC_SITE` for dynamic | Same + text/reloc patch for late names under Fil-C W^X |
 | Growable registry + vtable growth | Same |
 | In-process `module_load` | Same ABI with `dlopen` modules later |
 
@@ -119,4 +121,4 @@ Instruction-count verification under Fil-C++ is a follow-on check, not a gate fo
 - **First milestone module load:** explicit `module_register` / `module_load` without a separate `.so`.
 - **Closed-world skip:** not implemented; sites still go through the patch path.
 
-Next toward the ideal hot path: emit reloc/imm sites so `(*(obj->isa_))[imm]` needs no cell load; optionally flatten `isa_` back to `zefc_method*` with a non-moving slot allocator.
+Next toward the ideal hot path: reloc/text-imm patch for selectors **not** in the closed-world set; optionally flatten `isa_` back to `zefc_method*` with a non-moving slot allocator.

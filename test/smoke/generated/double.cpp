@@ -1,6 +1,6 @@
 // Hand-maintained Double runtime (future: generated from .zefc).
 // Doubles are Zef-style NaN-box immediates (no heap). Arithmetic short-circuits
-// in ZEFC_SEND* via zefc_double_send*; vtable remains for selector registration.
+// in ZEFC_SEND* via zefc_double_send*; compares use closed-world ZEFC_SEL_* imms.
 
 #include <cmath>
 #include <cstdio>
@@ -8,19 +8,12 @@
 
 #include "zefc/dispatch.hpp"
 #include "zefc/double_api.hpp"
+#include "zefc/known_selectors.hpp"
 #include "zefc/runtime.hpp"
-#include "zefc/selectors.hpp"
 #include "zefc/string_api.hpp"
 
 namespace zefc {
 namespace runtime {
-
-static int sel_toString_o = 0;
-static int sel_add_o = 0;
-static int sel_sub_o = 0;
-static int sel_mul_o = 0;
-static int sel_div_o = 0;
-static int sel_sqrt_o = 0;
 
 static VTable* Double_vtable = nullptr;
 
@@ -59,14 +52,7 @@ void
 double_runtime_init()
 {
   package_register("zefc.runtime.double");
-  sel_toString_o = selector_intern("toString_o");
-  sel_add_o = selector_intern("add_o");
-  sel_sub_o = selector_intern("sub_o");
-  sel_mul_o = selector_intern("mul_o");
-  sel_div_o = selector_intern("div_o");
-  sel_sqrt_o = selector_intern("sqrt_o");
-  // Vtable exists so Double participates in the shared selector namespace; sends
-  // on immediates never load isa_.
+  // Selectors reserved in known_selectors_init; vtable is a namespace placeholder.
   Double_vtable = vtable_create();
   selector_sites_patch();
 }
@@ -93,10 +79,10 @@ id
 zefc_double_send0(id self, int selector)
 {
   using namespace runtime;
-  if (selector == sel_toString_o) {
+  if (selector == ZEFC_SEL_toString_o) {
     return double_toString(self);
   }
-  if (selector == sel_sqrt_o) {
+  if (selector == ZEFC_SEL_sqrt_o) {
     return encode_double(std::sqrt(decode_double(self)));
   }
   std::fprintf(stderr, "doesNotUnderstand: immediate Double selector=%d\n", selector);
@@ -113,16 +99,16 @@ zefc_double_send1(id self, int selector, id arg0)
   }
   const double a = decode_double(self);
   const double b = decode_double(arg0);
-  if (selector == sel_add_o) {
+  if (selector == ZEFC_SEL_add_o) {
     return encode_double(a + b);
   }
-  if (selector == sel_sub_o) {
+  if (selector == ZEFC_SEL_sub_o) {
     return encode_double(a - b);
   }
-  if (selector == sel_mul_o) {
+  if (selector == ZEFC_SEL_mul_o) {
     return encode_double(a * b);
   }
-  if (selector == sel_div_o) {
+  if (selector == ZEFC_SEL_div_o) {
     return encode_double(a / b);
   }
   std::fprintf(stderr, "doesNotUnderstand: immediate Double selector=%d\n", selector);

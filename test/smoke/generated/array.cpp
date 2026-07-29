@@ -8,6 +8,7 @@
 #include "zefc/array_api.hpp"
 #include "zefc/dispatch.hpp"
 #include "zefc/int_api.hpp"
+#include "zefc/known_selectors.hpp"
 #include "zefc/runtime.hpp"
 #include "zefc/selectors.hpp"
 #include "zefc/string_api.hpp"
@@ -38,7 +39,7 @@ Array__toString_o(id self, int selector, ...)
     if (i > 0) {
       out += ',';
     }
-    id s = ZEFC_SEND0(arr->elems[i], ZEFC_SITE("toString_o"));
+    id s = ZEFC_SEND0(arr->elems[i], ZEFC_SEL_toString_o);
     out += String__cstr(s);
   }
   out += ']';
@@ -117,11 +118,11 @@ array_runtime_init()
 {
   package_register("zefc.runtime.array");
   Array_vtable = vtable_create();
-  vtable_set(Array_vtable, selector_intern("toString_o"), Array__toString_o);
-  vtable_set(Array_vtable, selector_intern("push_o"), Array__push_o);
-  vtable_set(Array_vtable, selector_intern("GET_i"), Array__GET_i);
-  vtable_set(Array_vtable, selector_intern("mul_PUT_i"), Array__mul_PUT_i);
-  vtable_set(Array_vtable, selector_intern("size_o"), Array__size_o);
+  vtable_set(Array_vtable, ZEFC_SEL_toString_o, Array__toString_o);
+  vtable_set(Array_vtable, ZEFC_SEL_push_o, Array__push_o);
+  vtable_set(Array_vtable, ZEFC_SEL_GET_i, Array__GET_i);
+  vtable_set(Array_vtable, ZEFC_SEL_mul_PUT_i, Array__mul_PUT_i);
+  vtable_set(Array_vtable, ZEFC_SEL_size_o, Array__size_o);
   selector_sites_patch();
 }
 
@@ -142,25 +143,25 @@ Array__new()
 id
 Array__push(id array, id value)
 {
-  return ZEFC_SEND1(array, ZEFC_SITE("push_o"), value);
+  return ZEFC_SEND1(array, ZEFC_SEL_push_o, value);
 }
 
 id
 Array__at(id array, int index)
 {
-  return ZEFC_SEND1(array, ZEFC_SITE("GET_i"), Int__from_i64(index));
+  return ZEFC_SEND1(array, ZEFC_SEL_GET_i, Int__from_i64(index));
 }
 
 int
 Array__size(id array)
 {
-  return static_cast<int>(Int__to_i64(ZEFC_SEND0(array, ZEFC_SITE("size_o"))));
+  return static_cast<int>(Int__to_i64(ZEFC_SEND0(array, ZEFC_SEL_size_o)));
 }
 
 void
 Array__mul_assign_at(id array, int index, long long factor)
 {
-  (void)ZEFC_SEND2(array, ZEFC_SITE("mul_PUT_i"), Int__from_i64(index), Int__from_i64(factor));
+  (void)ZEFC_SEND2(array, ZEFC_SEL_mul_PUT_i, Int__from_i64(index), Int__from_i64(factor));
 }
 
 } // namespace zefc
