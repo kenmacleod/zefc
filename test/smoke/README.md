@@ -2,6 +2,8 @@
 
 End-to-end checks for ZefC-shaped codegen and runtime behavior. Each case mirrors a test from the sibling [Zef](https://github.com/pizlonator/zef) tree (`../zef/tests/`).
 
+**Dispatch ABI:** Today’s hand-compiled cases often use global `zefc_slot_*` loads at each send. That is **scaffolding**, not the target. The intended model is load-time patching of selector immediates so the hot path matches C++ virtual calls; see [docs/dispatch-and-loading.md](../../docs/dispatch-and-loading.md).
+
 ## Tier-1 cases (hand-compiled)
 
 | Case | Zef source | What it exercises |
