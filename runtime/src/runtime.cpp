@@ -205,10 +205,6 @@ void print(id value)
 
 void println(id value)
 {
-  if (value == null_id()) {
-    std::printf("\n");
-    return;
-  }
   write_value(value);
   std::printf("\n");
 }
