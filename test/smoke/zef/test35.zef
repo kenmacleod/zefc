@@ -1,0 +1,9 @@
+    my i = 0;
+    while (1) {
+        i += 1
+        if (i & 1)
+            continue
+        println(i)
+        if (i > 6)
+            break
+    }

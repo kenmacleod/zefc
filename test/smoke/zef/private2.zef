@@ -1,0 +1,6 @@
+class Foo {
+    static fn thingy stuff
+    static private fn stuff println("Hello")
+}
+
+Foo.thingy

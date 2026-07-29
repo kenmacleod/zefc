@@ -1,0 +1,11 @@
+fn thingy(arg)
+{
+    class WTF {
+        readable baz
+
+        fn (inBaz) baz = inBaz + arg
+    }
+    return WTF
+}
+
+println(thingy(42)(666).baz)

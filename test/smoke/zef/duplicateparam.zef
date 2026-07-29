@@ -1,0 +1,10 @@
+fn foo(a, a, a)
+{
+    println(a)
+}
+
+fn test foo(1, 2, 3)
+
+test
+test
+

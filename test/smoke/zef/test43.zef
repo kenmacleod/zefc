@@ -1,0 +1,8 @@
+    fn foo(x)
+    {
+        if (x < 42)
+            return
+        666
+    }
+    println(foo(1))
+    println(foo(100))

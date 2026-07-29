@@ -43,6 +43,14 @@ End-to-end checks for ZefC-shaped codegen and runtime behavior. Each case mirror
 | `staticcall3`–`staticcall6` | Nested/package static callables |
 | `super2` | Inheritance + `super.foo` I/O |
 | `test11`, `test16`–`test18` | **Error:** cyclic class; bare `return`/`break`/`continue` |
+| `testc`, `testb2`–`testb4` | Silent/`()` call variants of hello |
+| `test14`–`test15`, `test19`, `test35`, `test42`–`test43` | `break`/`continue`/`return`; if-expr |
+| `test23`, `test26`–`test27` | Nested closures / HOF call patterns |
+| `test30`, `int64`, `duplicateparam` | Identity `==`; 64-bit arith; last duplicate param |
+| `test36`, `accessors`, `accessors2b` | Property/`+=`; readable/accessible fields |
+| `private1`–`private3`, `classinfunction*` | Private methods; class-in-function |
+| `staticcall7` | Deep nested static callable |
+| `test21`, `test28`, `test39`, `accessors2` | **Error:** redeclare / bad method / `error()` / private field |
 
 Sources of truth: `expected/<case>.stdout` or `.stderr` (from Zef `.expected` / `.error`). Reference `.zef` files under `zef/`.
 
@@ -70,7 +78,7 @@ Fil-C++ driver: **`fil++`** at
 ./tools/setup-build.sh
 meson compile -C build
 build/test/smoke/zefc-smoke precedence   # one case
-meson test -C build --suite smoke        # all cases (69 today)
+meson test -C build --suite smoke        # all cases (100 today)
 ```
 
 Use `-Duse_filc=false` and plain `meson setup build` for system g++.

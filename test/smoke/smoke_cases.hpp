@@ -72,6 +72,37 @@ void smoke_test16();
 void smoke_test17();
 void smoke_test18();
 void smoke_test11();
+void smoke_testc();
+void smoke_test42();
+void smoke_test14();
+void smoke_test15();
+void smoke_test19();
+void smoke_test23();
+void smoke_test26();
+void smoke_test26b();
+void smoke_test26c();
+void smoke_test27();
+void smoke_test30();
+void smoke_test35();
+void smoke_test36();
+void smoke_test43();
+void smoke_testb2();
+void smoke_testb3();
+void smoke_testb4();
+void smoke_duplicateparam();
+void smoke_staticcall7();
+void smoke_accessors();
+void smoke_accessors2b();
+void smoke_int64();
+void smoke_private1();
+void smoke_private2();
+void smoke_private3();
+void smoke_classinfunction();
+void smoke_classinfunction2();
+void smoke_test21();
+void smoke_test28();
+void smoke_test39();
+void smoke_accessors2();
 
 } // namespace smoke
 } // namespace zefc

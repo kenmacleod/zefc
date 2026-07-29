@@ -1,0 +1,1 @@
+error("Hello ", 666, " World")

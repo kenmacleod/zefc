@@ -1,0 +1,9 @@
+fn times(f, n)
+{
+    my i = 0
+    while (i < n) {
+        f
+        i += 1
+    }
+}
+times(fn println("hello"), 10)

@@ -1,0 +1,10 @@
+my x = 0xa0a0a0a0a0a0a0a0
+my b = 0x0b0b0b0b0b0b0b0b
+
+println(x)
+println(b)
+println(x + b)
+println(x - b)
+println(x * b)
+println(x / b)
+println(x % b)

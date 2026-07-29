@@ -1,0 +1,9 @@
+    class Thingy {
+        my x
+        fn (inX) x = inX
+        fn x x + 42
+        fn set_x(value) x = value + 666
+    }
+    my t = Thingy(1)
+    t.x += 67
+    println(t.x)

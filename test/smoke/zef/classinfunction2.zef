@@ -1,0 +1,14 @@
+fn thingy(arg)
+{
+    class WTF {
+        readable baz
+
+        fn (inBaz) baz = inBaz + arg
+    }
+    return WTF
+}
+
+fn test(a, b) println(thingy(a)(b).baz)
+
+test(1, 2)
+test(3, 4)

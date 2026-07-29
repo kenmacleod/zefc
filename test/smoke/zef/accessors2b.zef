@@ -1,0 +1,17 @@
+class Foo {
+    private readable a = 1
+    private accessible b = 2
+
+    fn { }
+
+    fn thingy(o) o.a
+    fn stuff(o) o.b
+    fn whatever(o, v) o.b = v
+}
+
+my o = Foo()
+println(Foo().thingy(o))
+println(Foo().stuff(o))
+Foo().whatever(o, 42)
+println(Foo().stuff(o))
+

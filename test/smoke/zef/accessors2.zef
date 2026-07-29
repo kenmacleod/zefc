@@ -1,0 +1,8 @@
+class Foo {
+    private readable a = 1
+
+    fn { }
+}
+
+my o = Foo()
+println(o.a)

@@ -1,0 +1,19 @@
+class Foo {
+    readable a = 1
+    accessible b = 2
+    static readable c = 3
+    static accessible d = 4
+
+    fn { }
+}
+
+my o = Foo()
+println(o.a)
+println(o.b)
+o.b = 42
+println(o.b)
+
+println(Foo.c)
+println(Foo.d)
+Foo.d = 666
+println(Foo.d)

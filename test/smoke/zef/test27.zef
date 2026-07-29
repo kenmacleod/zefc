@@ -1,0 +1,9 @@
+    fn foo(f)
+    {
+        f()
+    }
+    foo(fn
+    {
+        println("hello")
+        println("world")
+    })

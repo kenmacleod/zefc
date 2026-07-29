@@ -1,0 +1,2 @@
+    my x = 42 + (if (1 < 2) 666 else 1410)
+    println(x)

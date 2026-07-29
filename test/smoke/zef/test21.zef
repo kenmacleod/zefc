@@ -1,0 +1,6 @@
+    my x
+    fn x println("hello")
+    x = 42     # assignment to variable x
+    println(x) # use of variable x (prints 42)
+    x()        # call to function x (prints hello)
+    x          # use of variable x (does nothing)
