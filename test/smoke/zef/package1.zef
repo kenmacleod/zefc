@@ -1,0 +1,4 @@
+package foo {
+    fn thingy println("hello")
+}
+foo.thingy

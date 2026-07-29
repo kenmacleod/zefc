@@ -1,0 +1,12 @@
+my f = 666
+my x = 1410
+fn thingy {
+    println("(1) f = ", f, ", x = ", x)
+    load("stuff/package.zef")
+    println("(2) f = ", f, ", x = ", x)
+    import(foo)
+    println("(3) f = ", f, ", x = ", x)
+}
+thingy
+
+

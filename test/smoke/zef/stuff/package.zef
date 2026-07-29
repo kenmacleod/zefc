@@ -1,0 +1,4 @@
+package foo {
+    fn f 42
+    readable x = 666
+}

@@ -1,0 +1,6 @@
+package foo {
+    package bar {
+        fn thingy println("hello")
+    }
+}
+foo.bar.thingy

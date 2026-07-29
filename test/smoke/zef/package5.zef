@@ -1,0 +1,8 @@
+package thingy {
+    fn stuff
+    {
+        println("hello")
+    }
+}
+import thingy
+stuff

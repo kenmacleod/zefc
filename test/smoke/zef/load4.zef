@@ -1,0 +1,3 @@
+load("stuff/package.zef")
+println(foo.f)
+println(foo.x)

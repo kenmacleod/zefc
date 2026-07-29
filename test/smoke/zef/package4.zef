@@ -1,0 +1,18 @@
+package foo {
+    package bar {
+        fn thingy(x)
+        {
+            println("thingy " + x)
+        }
+    }
+}
+package foo {
+    package bar {
+        fn stuff(x)
+        {
+            println("stuff " + x)
+        }
+    }
+}
+foo.bar.thingy("hello")
+foo.bar.stuff("world")

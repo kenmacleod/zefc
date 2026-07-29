@@ -24,6 +24,13 @@ End-to-end checks for ZefC-shaped codegen and runtime behavior. Each case mirror
 | `test9` | `test9.zef` | Nested class + multi-level closure (result 21) |
 | `staticcall2` | `staticcall2.zef` | Nested static class call |
 | `test10` | `test10.zef` | **Error:** cyclic class hierarchy |
+| `package1` | `package1.zef` | Top-level package call |
+| `package2` | `package2.zef` | Nested packages |
+| `load1` | `load1.zef` | Runtime `module_load` of compiled `stuff/world` |
+| `load4` | `load4.zef` | Load package module; read `foo.f` / `foo.x` |
+| `load5`–`load10` | `load5`–`load10.zef` | Package overwrite, `import`, scope/import rules |
+| `load2`, `load3` | `load2`/`load3.zef` | **Error:** loaded locals not visible to caller |
+| `package3`–`package5` | `package3`–`package5.zef` | Merged packages, nested packages, `import` |
 
 Sources of truth: `expected/<case>.stdout` or `.stderr` (from Zef `.expected` / `.error`). Reference `.zef` files under `zef/`.
 
@@ -32,7 +39,7 @@ Sources of truth: `expected/<case>.stdout` or `.stderr` (from Zef `.expected` / 
 | Path | Role |
 |------|------|
 | `zef/*.zef` | Reference inputs (from `../zef/tests/` or docs) |
-| `generated/cstr.cpp`, `int.cpp` | Shared mini-runtime (String, Int) |
+| `generated/loadable_modules.cpp` | Hand-registered compiled modules for `module_load` |
 | `generated/case_*.cpp` | Hand-maintained “compiler output” per case |
 | `runtime_init.cpp` | Wires string + int runtime init |
 | `main.cpp` | `zefc-smoke <case>` driver |
@@ -51,7 +58,7 @@ Fil-C++ driver: **`fil++`** at
 ./tools/setup-build.sh
 meson compile -C build
 build/test/smoke/zefc-smoke precedence   # one case
-meson test -C build --suite smoke        # all cases (16 today)
+meson test -C build --suite smoke        # all cases (31 today)
 ```
 
 Use `-Duse_filc=false` and plain `meson setup build` for system g++.

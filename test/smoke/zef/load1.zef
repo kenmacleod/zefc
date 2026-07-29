@@ -1,0 +1,3 @@
+println("hello")
+load("stuff/world.zef")
+println("yeah")

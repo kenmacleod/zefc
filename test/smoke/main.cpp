@@ -1,4 +1,5 @@
 #include "zefc/runtime_bootstrap.hpp"
+#include "loadable_modules.hpp"
 #include "smoke_cases.hpp"
 
 #include <cstdio>
@@ -29,6 +30,21 @@ static const Case kCases[] = {
   {"test9", smoke_test9},
   {"staticcall2", smoke_staticcall2},
   {"test10", smoke_test10},
+  {"package1", smoke_package1},
+  {"package2", smoke_package2},
+  {"package3", smoke_package3},
+  {"package4", smoke_package4},
+  {"package5", smoke_package5},
+  {"load1", smoke_load1},
+  {"load2", smoke_load2},
+  {"load3", smoke_load3},
+  {"load4", smoke_load4},
+  {"load5", smoke_load5},
+  {"load6", smoke_load6},
+  {"load7", smoke_load7},
+  {"load8", smoke_load8},
+  {"load9", smoke_load9},
+  {"load10", smoke_load10},
 };
 
 static void
@@ -55,6 +71,7 @@ main(int argc, char** argv)
   }
 
   zefc::runtime_package_init();
+  zefc::register_smoke_loadable_modules();
 
   for (const zefc::smoke::Case& c : zefc::smoke::kCases) {
     if (std::strcmp(argv[1], c.name) == 0) {

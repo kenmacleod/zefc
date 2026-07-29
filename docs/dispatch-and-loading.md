@@ -29,7 +29,7 @@ ZefC therefore compiles **each TU independently**. Dynamic loading is only a **r
 | **ZefC package load** | Map a **compiled** module (e.g. shared object or registered image), register selectors, grow vtables, patch call sites, then run module init / top-level. | **No** — this is the next work; hand-built modules are enough. |
 | **Zef `load("….zef")` as source** | Interpreter: parse and evaluate source at the call. | **No** for dispatch work. Later: either AOT (`load` resolves to a prebuilt module on a search path) or compile-on-load once the compiler exists. |
 
-Smoke may use hand-built `.so` (or in-process register) packages to exercise ZefC load before the compiler exists. Faithful Zef `load*.zef` tests that pass a **source** path can wait for AOT packaging or the compiler; they do not gate the dispatch ABI.
+Smoke may use hand-built `.so` (or in-process `module_register` / `module_load`) packages to exercise ZefC load before the compiler exists. Faithful Zef `load*.zef` tests that pass a **source** path can wait for AOT packaging or the compiler; they do not gate the dispatch ABI. In-process registration of hand-compiled modules is enough to prove load sequencing and package bindings.
 
 ## Call-site ABI (steady state)
 

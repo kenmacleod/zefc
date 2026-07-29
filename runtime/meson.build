@@ -1,6 +1,7 @@
 runtime_sources = files(
   'src/runtime.cpp',
   'src/error.cpp',
+  'src/module.cpp',
 )
 
 runtime_lib = static_library(

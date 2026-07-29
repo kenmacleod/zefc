@@ -1,0 +1,7 @@
+package foo {
+    fn f 666
+}
+println(foo.f)
+load("stuff/package.zef")
+println(foo.f)
+
