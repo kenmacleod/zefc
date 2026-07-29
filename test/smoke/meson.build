@@ -6,6 +6,13 @@ smoke_cases = [
   'test4',
   'test3',
   'test2',
+  'super',
+  'staticcall',
+]
+
+smoke_error_cases = [
+  'nocons',
+  'test7b',
 ]
 
 smoke_sources = files(
@@ -20,6 +27,10 @@ smoke_sources = files(
   'generated/case_test4.cpp',
   'generated/case_test3.cpp',
   'generated/case_test2.cpp',
+  'generated/case_super.cpp',
+  'generated/case_staticcall.cpp',
+  'generated/case_nocons.cpp',
+  'generated/case_test7b.cpp',
 )
 
 smoke_inc = include_directories('.')
@@ -41,6 +52,21 @@ foreach case : smoke_cases
     python3,
     args : [
       meson.current_source_dir() / 'check_stdout.py',
+      smoke_exe,
+      case,
+      expected,
+    ],
+    suite : 'smoke',
+  )
+endforeach
+
+foreach case : smoke_error_cases
+  expected = meson.current_source_dir() / 'expected' / (case + '.stderr')
+  test(
+    'smoke error @0@'.format(case),
+    python3,
+    args : [
+      meson.current_source_dir() / 'check_error.py',
       smoke_exe,
       case,
       expected,

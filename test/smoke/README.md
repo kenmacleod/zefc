@@ -13,8 +13,12 @@ End-to-end checks for ZefC-shaped codegen and runtime behavior. Each case mirror
 | `test4` | `test4.zef` | Nested function / closure call |
 | `test3` | `test3.zef` | Class with three fields, `add`, `toString` |
 | `test2` | `test2.zef` | `while`, `+=` string build, `print` |
+| `super` | `super.zef` | Inheritance, `super`, method override |
+| `staticcall` | `staticcall.zef` | Static factory / callable class |
+| `nocons` | `nocons.zef` | **Error:** no constructor |
+| `test7b` | `test7b.zef` | **Error:** unconstructed superclass fields |
 
-Sources of truth for stdout: `expected/<case>.stdout` (copied from Zef `.zef.expected` where applicable). Reference `.zef` files live under `zef/`.
+Sources of truth: `expected/<case>.stdout` or `.stderr` (from Zef `.expected` / `.error`). Reference `.zef` files under `zef/`.
 
 ## Layout
 
@@ -26,6 +30,7 @@ Sources of truth for stdout: `expected/<case>.stdout` (copied from Zef `.zef.exp
 | `runtime_init.cpp` | Wires string + int runtime init |
 | `main.cpp` | `zefc-smoke <case>` driver |
 | `check_stdout.py` | Golden stdout + empty stderr check |
+| `check_error.py` | Exit 1 + golden stderr (error cases) |
 | `expected/*.stdout` | Expected output |
 
 Shared dispatch/IO lives in `../../runtime/`.
@@ -39,7 +44,7 @@ Fil-C++ driver: **`fil++`** at
 ./tools/setup-build.sh
 meson compile -C build
 build/test/smoke/zefc-smoke precedence   # one case
-meson test -C build --suite smoke        # all 7 cases
+meson test -C build --suite smoke        # all cases (11 today)
 ```
 
 Use `-Duse_filc=false` and plain `meson setup build` for system g++.

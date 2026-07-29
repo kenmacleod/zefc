@@ -1,0 +1,44 @@
+class Foo {
+    my thingy, stuff
+
+    fn (inThingy)
+    {
+        thingy = inThingy
+        stuff = "hello"
+    }
+
+    fn thingy thingy
+    fn stuff stuff
+
+    fn doShit
+    {
+        thingy += 1
+        stuff += "x"
+    }
+
+    fn toString { "Foo<" + thingy.toString + "," + stuff.toString + ">" }
+}
+
+class Bar : Foo {
+    my whatever, blah
+
+    fn (crap)
+    {
+        whatever = crap.toString
+        blah = crap + 5
+        # super(crap + 10)
+    }
+
+    fn whatever whatever
+    fn blah blah
+
+    fn toString "Bar<" + thingy.toString + "," + stuff.toString + "," + whatever.toString +
+                "," + blah.toString + ">"
+}
+
+my bar = Bar(666)
+bar.doShit
+bar.doShit
+println(bar)
+
+

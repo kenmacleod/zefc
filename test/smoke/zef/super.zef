@@ -1,0 +1,24 @@
+class Foo {
+    fn { }
+
+    fn foo println("hello")
+}
+
+class Bar : Foo {
+    fn { super }
+
+    fn foo println("world")
+
+    fn bar super.foo
+}
+
+fn test
+{
+    Foo().foo
+    Bar().bar
+    Bar().foo
+}
+
+test
+test
+

@@ -20,6 +20,10 @@ static const Case kCases[] = {
   {"test4", smoke_test4},
   {"test3", smoke_test3},
   {"test2", smoke_test2},
+  {"super", smoke_super},
+  {"staticcall", smoke_staticcall},
+  {"nocons", smoke_nocons},
+  {"test7b", smoke_test7b},
 };
 
 static void
