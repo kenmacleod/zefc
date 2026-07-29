@@ -2,7 +2,8 @@
 
 namespace zefc {
 
-// Patched when packages register symbols (smoke runtime uses fixed init order).
+// Compat globals: patched once at runtime init. Prefer ZEFC_SITE at new
+// call sites so each site has its own cell (path toward imm patching).
 extern int zefc_slot_add_o;
 extern int zefc_slot_sub_o;
 extern int zefc_slot_mul_o;

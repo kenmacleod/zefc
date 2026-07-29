@@ -64,61 +64,60 @@ User code from that module must not run until step 4 completes for that module�
 
 ## Patching mechanism
 
-**Intent:** one-time fixup of generated code (or its reloc metadata), not an extra indirection each send.
+**Chosen representation (this milestone):** per-call-site **addressable patch cells** — `static int` cells registered via `ZEFC_SITE("mangled")` / `selector_site_register`, written once by `selector_sites_patch()` / `zefc_module_barrier()` (also at the end of `module_load`). Sends use the cell value as the vtable index:
 
-Acceptable representations (choose one in implementation; document the choice in code comments when picked):
+```text
+obj->isa_->slots[site](obj, site, …)
+```
 
-- Reloc / patch table emitted by the compiler: list of sites that need a selector immediate filled at load.
-- Section of addressable patch cells that the **instruction stream already uses as immediates after linking** (load-time write, then execute). Prefer forms that keep the hot path at C++ cost.
+where `isa_` is a stable `VTable*` (slots array may grow; the handle does not move).
 
-**Fil-C / W^X:** patch while the text (or patch staging) is writable as required by the toolchain, then execute with normal protection. Do not assume open-ended self-modifying code after init.
+This is the portable step toward instruction-immediate selectors. It removes shared per-send `zefc_slot_*` loads at new sites (each site has its own cell). **Not yet** true `vtable[imm]` in the instruction stream; that remains a follow-on (reloc / text patch under Fil-C W^X).
 
-**Already-loaded code that later needs a brand-new selector:** only sites that **reference** that selector need patching (e.g. a TU that imported a symbol whose ID was unknown at first link). Sites that never name the new selector stay unchanged. Prefer append-only IDs so old immediates remain valid.
+Compat: `zefc_slot_*` globals still exist and are patched once at runtime init for older smoke call sites.
+
+**Already-loaded code that later needs a brand-new selector:** only sites that **reference** that selector need patching. Append-only IDs keep old immediates/cells valid. Vtables grow; new slots are `doesNotUnderstand` until the loading module installs methods.
 
 ## Vtable growth
 
 When the global selector count increases:
 
-- Expand each registered class’s `isa_` vector (or equivalent).
-- Initialize new entries to `doesNotUnderstand`.
-- Copy / preserve existing entries.
-- Apply the loading package’s method overrides for selectors it defines.
-
-Growth must be safe for objects already allocated: either vtables are process-global tables pointed to by `isa_`, or objects are updated according to a single documented ownership rule. Prefer one shared growable table layout pointed at by `isa_` so existing objects keep working without per-object walks when possible.
+- Each registered `VTable` reallocates its `slots` array (capacity doubles as needed).
+- New entries are filled with `doesNotUnderstand`.
+- Existing entries are preserved.
+- Objects hold a stable `VTable*`; they do not need per-object updates when slots grow.
 
 ## Module layout (first milestone)
 
 Minimum viable package unit:
 
-- Generated C++ compiled to a **shared library** (or a second linked module registered explicitly if `dlopen` is deferred).
-- Exports a module init that: registers its selectors and classes, contributes patch records, installs vtable methods.
-- Host calls into the registry / loader, which runs the sequence above, then returns to the caller.
-
-Constructor macros (`ZEFC_MODULE_CONSTRUCTOR`) may run as part of `dlopen`; ordering relative to registry init must be defined so patches run before package top-level side effects that perform sends.
+- In-process `module_register` / `module_load` (no `dlopen` yet).
+- `module_load`: run entry → `zefc_module_barrier()` (intern pending sites, grow vtables, patch cells).
+- Entries that must send during load call `zefc_module_barrier()` before those sends.
 
 ## Scaffolding vs end state
 
-| Today (smoke) | Target |
+| Today (smoke, mid step A) | Target |
 |---------------|--------|
-| `extern int zefc_slot_*` loaded each send | Immediate / patched constant in the send |
-| Fixed `kMaxSelectors`, manual `selector_patch` | Growable registry + automatic site patch |
-| Single binary, `main` calls `runtime_package_init()` | Module load + init before package body |
-| Hand-compiled cases in one exe | Same ABI, later emitted by ZefC |
+| `ZEFC_SITE` patch cells + `VTable*` | Instruction-immediate `selector` + flat `zefc_method* isa_` if possible |
+| Compat `zefc_slot_*` still used by some cases | Remove shared globals from hot path entirely |
+| Growable registry + vtable growth | Same |
+| In-process `module_load` | Same ABI with `dlopen` modules later |
 
-## Acceptance (next implementation milestone)
+## Acceptance (this milestone)
 
-1. Growable selector registry with append-only IDs.
-2. Vtable growth with `doesNotUnderstand` fill.
-3. Load-time (or init-time) **patch of call-site selector constants** so a send after patch does not read a global for the ID.
-4. Smoke: module A loaded; module B loaded afterward; B (and A if needed) patched; a send from the documented call shape resolves correctly and matches a golden.
-5. Document in this file which patch representation was chosen once implemented.
+1. Growable selector registry with append-only IDs — **done**.
+2. Vtable growth with `doesNotUnderstand` fill — **done**.
+3. Load/init-time patch of call-site cells so a send need not read a **shared** global for the ID — **done** (`ZEFC_SITE` / `patch1`).
+4. Smoke `patch1`: module A then B; B adds a selector; site-based sends resolve — **done**.
+5. Patch representation documented above — **done**.
 
 Instruction-count verification under Fil-C++ is a follow-on check, not a gate for landing the ABI.
 
-## Open choices (resolve when implementing)
+## Open choices (resolved for this milestone)
 
-- Exact reloc / patch-table format the compiler (and hand-maintained smoke) emits.
-- First milestone: `dlopen` vs explicit `zefc_register_module` without a separate `.so`.
-- Whether closed-world builds skip patch tables entirely for known selectors.
+- **Patch-table format:** per-site `int` cells + pending registration list (`selector_site_register` / `selector_sites_patch`).
+- **First milestone module load:** explicit `module_register` / `module_load` without a separate `.so`.
+- **Closed-world skip:** not implemented; sites still go through the patch path.
 
-Update this section when those choices are made.
+Next toward the ideal hot path: emit reloc/imm sites so `(*(obj->isa_))[imm]` needs no cell load; optionally flatten `isa_` back to `zefc_method*` with a non-moving slot allocator.

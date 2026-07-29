@@ -16,11 +16,11 @@ namespace zefc {
 namespace runtime {
 
 struct Array_ {
-  zefc_method* isa_;
+  VTable* isa_;
   std::vector<id> elems;
 };
 
-static zefc_method Array_vtable[kMaxSelectors];
+static VTable* Array_vtable = nullptr;
 
 static id Array__toString_o(id self, int selector, ...);
 static id Array__push_o(id self, int selector, ...);
@@ -100,9 +100,7 @@ void
 array_runtime_init()
 {
   package_register("zefc.runtime.array");
-  for (int i = 0; i < kMaxSelectors; ++i) {
-    Array_vtable[i] = doesNotUnderstand;
-  }
+  Array_vtable = vtable_create();
   if (zefc_slot_toString_o == 0) {
     selector_patch(&zefc_slot_toString_o, selector_intern("toString_o"));
   }
@@ -113,6 +111,7 @@ array_runtime_init()
   vtable_set(Array_vtable, zefc_slot_push_o, Array__push_o);
   vtable_set(Array_vtable, zefc_slot_GET_i, Array__GET_i);
   vtable_set(Array_vtable, zefc_slot_mul_PUT_i, Array__mul_PUT_i);
+  selector_sites_patch();
 }
 
 } // namespace runtime

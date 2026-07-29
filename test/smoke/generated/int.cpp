@@ -1,8 +1,8 @@
 // Hand-maintained Int runtime (future: generated from .zefc).
 
+#include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
-#include <cstdarg>
 
 #include "zefc/dispatch.hpp"
 #include "zefc/int_api.hpp"
@@ -14,13 +14,13 @@ namespace zefc {
 namespace runtime {
 
 struct Int_ {
-  zefc_method* isa_;
+  VTable* isa_;
   long long value;
 };
 
 using Int = Int_*;
 
-static zefc_method Int_vtable[kMaxSelectors];
+static VTable* Int_vtable = nullptr;
 
 static id Int__toString_o(id self, int selector, ...);
 static id Int__add_o(id self, int selector, ...);
@@ -88,9 +88,7 @@ void
 int_runtime_init()
 {
   package_register("zefc.runtime.int");
-  for (int i = 0; i < kMaxSelectors; ++i) {
-    Int_vtable[i] = doesNotUnderstand;
-  }
+  Int_vtable = vtable_create();
   if (zefc_slot_add_o == 0) {
     selector_patch(&zefc_slot_add_o, selector_intern("add_o"));
   }
@@ -103,6 +101,7 @@ int_runtime_init()
   vtable_set(Int_vtable, zefc_slot_add_o, Int__add_o);
   vtable_set(Int_vtable, zefc_slot_sub_o, Int__sub_o);
   vtable_set(Int_vtable, zefc_slot_mul_o, Int__mul_o);
+  selector_sites_patch();
 }
 
 } // namespace runtime

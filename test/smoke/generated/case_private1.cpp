@@ -13,10 +13,10 @@ namespace smoke {
 namespace {
 
 struct Foo_ {
-  zefc_method* isa_;
+  VTable* isa_;
 };
 
-static zefc_method Foo_vtable[kMaxSelectors];
+static VTable* Foo_vtable = nullptr;
 static int slot_thingy = 0;
 static int slot_stuff = 0;
 
@@ -43,8 +43,8 @@ Foo__new()
   if (!ready) {
     selector_patch(&slot_thingy, selector_intern("priv1_thingy_o"));
     selector_patch(&slot_stuff, selector_intern("priv1_stuff_o"));
-    for (int i = 0; i < kMaxSelectors; ++i) {
-      Foo_vtable[i] = doesNotUnderstand;
+    if (!Foo_vtable) {
+      Foo_vtable = vtable_create();
     }
     vtable_set(Foo_vtable, slot_thingy, Foo__thingy_o);
     vtable_set(Foo_vtable, slot_stuff, Foo__stuff_o);

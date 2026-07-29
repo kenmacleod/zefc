@@ -17,13 +17,13 @@ namespace smoke {
 namespace {
 
 struct TupleFoo_ {
-  zefc_method* isa_;
+  VTable* isa_;
   id x;
   id y;
   id z;
 };
 
-static zefc_method TupleFoo_vtable[kMaxSelectors];
+static VTable* TupleFoo_vtable = nullptr;
 
 static id TupleFoo__new_ooo(id, int selector, id x, id y, id z);
 static id TupleFoo__add_o(id self, int selector, ...);
@@ -71,9 +71,9 @@ TupleFoo__new_ooo(id, int selector, id x, id y, id z)
 static void
 init_tuple_foo_vtable()
 {
-  for (int i = 0; i < kMaxSelectors; ++i) {
-    TupleFoo_vtable[i] = doesNotUnderstand;
-  }
+  if (!TupleFoo_vtable) {
+      TupleFoo_vtable = vtable_create();
+    }
   vtable_set(TupleFoo_vtable, zefc_slot_add_o, TupleFoo__add_o);
   vtable_set(TupleFoo_vtable, zefc_slot_toString_o, TupleFoo__toString_o);
 }

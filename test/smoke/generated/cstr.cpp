@@ -12,7 +12,7 @@ namespace zefc {
 namespace runtime {
 
 struct String_ {
-  zefc_method* isa_;
+  VTable* isa_;
   char* bytes;
 };
 
@@ -21,7 +21,7 @@ using String = String_*;
 static id String__toString_o(id self, int selector, ...);
 static id String__add_o(id self, int selector, ...);
 
-static zefc_method String_vtable[kMaxSelectors];
+static VTable* String_vtable = nullptr;
 
 static String
 String__from_utf8_impl(const char* utf8)
@@ -72,13 +72,12 @@ void
 string_runtime_init()
 {
   package_register("zefc.runtime.string");
-  for (int i = 0; i < kMaxSelectors; ++i) {
-    String_vtable[i] = doesNotUnderstand;
-  }
+  String_vtable = vtable_create();
   selector_patch(&zefc_slot_add_o, selector_intern("add_o"));
   selector_patch(&zefc_slot_toString_o, selector_intern("toString_o"));
   vtable_set(String_vtable, zefc_slot_toString_o, String__toString_o);
   vtable_set(String_vtable, zefc_slot_add_o, String__add_o);
+  selector_sites_patch();
 }
 
 } // namespace runtime

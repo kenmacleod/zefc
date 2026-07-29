@@ -8,8 +8,14 @@ namespace zefc {
 
 using zefc_method = struct id_* (*)(struct id_* self, int selector, ...);
 
+// Stable vtable handle: slots[] may grow; the VTable* identity does not move.
+struct VTable {
+  zefc_method* slots;
+  int capacity;
+};
+
 struct id_ {
-  zefc_method* isa_;
+  VTable* isa_;
 };
 
 using id = id_*;
@@ -28,8 +34,6 @@ id as_id(Body* obj)
   return reinterpret_cast<id>(obj);
 }
 
-constexpr int kMaxSelectors = 64;
-
 template<typename T>
 T* alloc()
 {
@@ -38,17 +42,29 @@ T* alloc()
 
 id doesNotUnderstand(id self, int selector, ...);
 
+// --- Selector registry (append-only) ---
 int selector_intern(const char* mangled_name);
+int selector_count(); // highest assigned ID + 1 (0 unused)
+
+// --- Call-site patch cells ---
+// Register a site cell to receive the interned ID for mangled_name at next patch.
+void selector_site_register(int* cell, const char* mangled_name);
+// Intern all pending site names, grow vtables, write IDs into cells, clear pending.
+void selector_sites_patch();
+
+// Compat: write a single cell (also used during gradual migration).
 void selector_patch(int* slot, int selector);
 
+// --- Growable vtables ---
+VTable* vtable_create();
+void vtable_register(VTable* vt); // participate in growth
+void vtable_set(VTable* vt, int selector, zefc_method method);
+void vtables_ensure_capacity(int min_capacity);
+
 template<typename Fn>
-void vtable_set(zefc_method* vtable, int selector, Fn method)
+void vtable_set(VTable* vt, int selector, Fn method)
 {
-  if (selector <= 0 || selector >= kMaxSelectors) {
-    std::fprintf(stderr, "invalid selector %d\n", selector);
-    ::exit(1);
-  }
-  vtable[selector] = reinterpret_cast<zefc_method>(method);
+  vtable_set(vt, selector, reinterpret_cast<zefc_method>(method));
 }
 
 void package_register(const char* name);

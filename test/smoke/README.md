@@ -10,7 +10,7 @@ End-to-end checks against Zef goldens from the sibling [Zef](https://github.com/
 
 **`zef/` ↔ `generated/` fidelity varies** — see [Fidelity](#fidelity). Prefer **structure** cases when studying dispatch; many package prints are still stubs. The comment `Generated from … (hand-maintained)` means paired goldens, not that every file is a full lowering.
 
-**Dispatch ABI:** Even structure cases usually load global `zefc_slot_*` on each send. That is **scaffolding**, not the target. Intended model: load-time patching of selector immediates; see [docs/dispatch-and-loading.md](../../docs/dispatch-and-loading.md).
+**Dispatch ABI:** Prefer `ZEFC_SITE("…")` patch cells and `obj->isa_->slots[sel]` sends ([docs/dispatch-and-loading.md](../../docs/dispatch-and-loading.md)). Shared `zefc_slot_*` globals are **compat** (patched once at init); new structure/acceptance cases should use sites. Ideal end state remains instruction-immediate selectors.
 
 ## Fidelity
 
@@ -41,6 +41,7 @@ C++ has objects / closures / vtables / `send` you can map to the Zef (transpile-
 | `staticcall`–`staticcall7` | Callable class / nested static `call` chains |
 | `test26`, `test26b`, `test26c`, `test27` | HOF `times`/`foo` invoking closure objects via `call` |
 | `test30` | Instance identity `==` via `eq` send |
+| `patch1` | **ABI acceptance:** load A then B; site cells; vtable growth |
 
 ### Behavioral / sequencing
 
@@ -95,7 +96,7 @@ Fil-C++ driver: **`fil++`** at
 ./tools/setup-build.sh
 meson compile -C build
 build/test/smoke/zefc-smoke precedence   # one case
-meson test -C build --suite smoke        # all cases (100 today)
+meson test -C build --suite smoke        # all cases (101 today)
 ```
 
 Use `-Duse_filc=false` and plain `meson setup build` for system g++.

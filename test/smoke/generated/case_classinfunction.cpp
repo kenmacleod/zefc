@@ -16,17 +16,17 @@ namespace smoke {
 namespace {
 
 struct WTF_ {
-  zefc_method* isa_;
+  VTable* isa_;
   id baz;
 };
 
 struct WTFClass_ {
-  zefc_method* isa_;
+  VTable* isa_;
   id captured_arg;
 };
 
-static zefc_method WTF_vtable[kMaxSelectors];
-static zefc_method WTFClass_vtable[kMaxSelectors];
+static VTable* WTF_vtable = nullptr;
+static VTable* WTFClass_vtable = nullptr;
 static int slot_baz = 0;
 static int slot_call = 0; // construct: Class(inBaz)
 
@@ -51,8 +51,8 @@ WTFClass__call_o(id self, int selector, ...)
     if (slot_baz == 0) {
       selector_patch(&slot_baz, selector_intern("baz_o"));
     }
-    for (int i = 0; i < kMaxSelectors; ++i) {
-      WTF_vtable[i] = doesNotUnderstand;
+    if (!WTF_vtable) {
+      WTF_vtable = vtable_create();
     }
     vtable_set(WTF_vtable, slot_baz, WTF__baz_o);
     inst_ready = true;
@@ -69,8 +69,8 @@ thingy(id arg)
   static bool ready = false;
   if (!ready) {
     selector_patch(&slot_call, selector_intern("wtf_call_o"));
-    for (int i = 0; i < kMaxSelectors; ++i) {
-      WTFClass_vtable[i] = doesNotUnderstand;
+    if (!WTFClass_vtable) {
+      WTFClass_vtable = vtable_create();
     }
     vtable_set(WTFClass_vtable, slot_call, WTFClass__call_o);
     ready = true;

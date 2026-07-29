@@ -13,11 +13,11 @@ namespace smoke {
 namespace {
 
 struct Class_ {
-  zefc_method* isa_;
+  VTable* isa_;
   id next;
 };
 
-static zefc_method vtables[5][kMaxSelectors];
+static VTable* vtables[5] = {};
 static Class_ nodes[5];
 static int slot_call = 0;
 
@@ -45,8 +45,8 @@ ensure()
   }
   selector_patch(&slot_call, selector_intern("sc7_call_o"));
   for (int n = 0; n < 5; ++n) {
-    for (int i = 0; i < kMaxSelectors; ++i) {
-      vtables[n][i] = doesNotUnderstand;
+    if (!vtables[n]) {
+      vtables[n] = vtable_create();
     }
   }
   vtable_set(vtables[4], slot_call, Leaf__call_o);

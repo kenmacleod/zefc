@@ -83,6 +83,7 @@ static const Case kCases[] = {
   {"test17", smoke_test17},
   {"test18", smoke_test18},
   {"test11", smoke_test11},
+  {"patch1", smoke_patch1},
   {"testc", smoke_testc},
   {"test42", smoke_test42},
   {"test14", smoke_test14},

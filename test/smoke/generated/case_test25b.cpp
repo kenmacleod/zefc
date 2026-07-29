@@ -15,18 +15,18 @@ namespace smoke {
 namespace {
 
 struct Closure1_ {
-  zefc_method* isa_;
+  VTable* isa_;
   long long a;
   long long b;
 };
 
 struct Closure0_ {
-  zefc_method* isa_;
+  VTable* isa_;
   long long a;
 };
 
-static zefc_method Closure1_vtable[kMaxSelectors];
-static zefc_method Closure0_vtable[kMaxSelectors];
+static VTable* Closure1_vtable = nullptr;
+static VTable* Closure0_vtable = nullptr;
 
 static id
 Closure1__call_o(id self, int selector, ...)
@@ -45,8 +45,8 @@ make_closure1(long long a, long long b)
 {
   static bool ready = false;
   if (!ready) {
-    for (int i = 0; i < kMaxSelectors; ++i) {
-      Closure1_vtable[i] = doesNotUnderstand;
+    if (!Closure1_vtable) {
+      Closure1_vtable = vtable_create();
     }
     vtable_set(Closure1_vtable, zefc_slot_add_o, Closure1__call_o);
     ready = true;
@@ -75,8 +75,8 @@ make_closure0(long long a)
 {
   static bool ready = false;
   if (!ready) {
-    for (int i = 0; i < kMaxSelectors; ++i) {
-      Closure0_vtable[i] = doesNotUnderstand;
+    if (!Closure0_vtable) {
+      Closure0_vtable = vtable_create();
     }
     vtable_set(Closure0_vtable, zefc_slot_add_o, Closure0__call_o);
     ready = true;

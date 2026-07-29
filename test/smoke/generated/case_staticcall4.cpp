@@ -13,16 +13,16 @@ namespace smoke {
 namespace {
 
 struct Pkg_ {
-  zefc_method* isa_;
+  VTable* isa_;
   id Bar;
 };
 
 struct BarClass_ {
-  zefc_method* isa_;
+  VTable* isa_;
 };
 
-static zefc_method Pkg_vtable[kMaxSelectors];
-static zefc_method Bar_vtable[kMaxSelectors];
+static VTable* Pkg_vtable = nullptr;
+static VTable* Bar_vtable = nullptr;
 static Pkg_ g_foo;
 static BarClass_ g_Bar;
 static int slot_Bar = 0;
@@ -51,10 +51,12 @@ ensure()
   }
   selector_patch(&slot_Bar, selector_intern("sc4_Bar_o"));
   selector_patch(&slot_call, selector_intern("sc4_call_o"));
-  for (int i = 0; i < kMaxSelectors; ++i) {
-    Pkg_vtable[i] = doesNotUnderstand;
-    Bar_vtable[i] = doesNotUnderstand;
-  }
+  if (!Pkg_vtable) {
+      Pkg_vtable = vtable_create();
+    }
+    if (!Bar_vtable) {
+      Bar_vtable = vtable_create();
+    }
   vtable_set(Bar_vtable, slot_call, Bar__call_o);
   vtable_set(Pkg_vtable, slot_Bar, Pkg__Bar_o);
   g_Bar.isa_ = Bar_vtable;

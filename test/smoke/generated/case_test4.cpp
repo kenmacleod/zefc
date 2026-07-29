@@ -15,11 +15,11 @@ namespace smoke {
 namespace {
 
 struct Closure_ {
-  zefc_method* isa_;
+  VTable* isa_;
   long long captured;
 };
 
-static zefc_method Closure_vtable[kMaxSelectors];
+static VTable* Closure_vtable = nullptr;
 
 static id
 Closure__call_o(id self, int selector, ...)
@@ -38,8 +38,8 @@ make_add_closure(long long captured)
 {
   static bool vtable_ready = false;
   if (!vtable_ready) {
-    for (int i = 0; i < kMaxSelectors; ++i) {
-      Closure_vtable[i] = doesNotUnderstand;
+    if (!Closure_vtable) {
+      Closure_vtable = vtable_create();
     }
     vtable_set(Closure_vtable, zefc_slot_add_o, Closure__call_o);
     vtable_ready = true;

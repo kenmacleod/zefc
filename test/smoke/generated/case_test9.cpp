@@ -16,20 +16,20 @@ namespace smoke {
 namespace {
 
 struct Foo_ {
-  zefc_method* isa_;
+  VTable* isa_;
   id x;
   id y;
 };
 
 struct InnerClosure_ {
-  zefc_method* isa_;
+  VTable* isa_;
   id x;
   id y;
   id z;
 };
 
 struct Bar_ {
-  zefc_method* isa_;
+  VTable* isa_;
   id x;
   id y;
   id z;
@@ -38,9 +38,9 @@ struct Bar_ {
   id b;
 };
 
-static zefc_method Foo_vtable[kMaxSelectors];
-static zefc_method InnerClosure_vtable[kMaxSelectors];
-static zefc_method Bar_vtable[kMaxSelectors];
+static VTable* Foo_vtable = nullptr;
+static VTable* InnerClosure_vtable = nullptr;
+static VTable* Bar_vtable = nullptr;
 
 static int slot_stuff = 0;
 static int slot_call3 = 0;
@@ -67,8 +67,8 @@ Bar__new(id x, id y, id z, id w, id a, id b)
     if (slot_thingy == 0) {
       selector_patch(&slot_thingy, selector_intern("thingy_o"));
     }
-    for (int i = 0; i < kMaxSelectors; ++i) {
-      Bar_vtable[i] = doesNotUnderstand;
+    if (!Bar_vtable) {
+      Bar_vtable = vtable_create();
     }
     vtable_set(Bar_vtable, slot_thingy, Bar__thingy_o);
     ready = true;
@@ -106,8 +106,8 @@ make_inner(id x, id y, id z)
     if (slot_call3 == 0) {
       selector_patch(&slot_call3, selector_intern("call_ooo"));
     }
-    for (int i = 0; i < kMaxSelectors; ++i) {
-      InnerClosure_vtable[i] = doesNotUnderstand;
+    if (!InnerClosure_vtable) {
+      InnerClosure_vtable = vtable_create();
     }
     vtable_set(InnerClosure_vtable, slot_call3, InnerClosure__call_ooo);
     ready = true;
@@ -140,8 +140,8 @@ Foo__new(id inX, id inY)
     if (slot_stuff == 0) {
       selector_patch(&slot_stuff, selector_intern("stuff_o"));
     }
-    for (int i = 0; i < kMaxSelectors; ++i) {
-      Foo_vtable[i] = doesNotUnderstand;
+    if (!Foo_vtable) {
+      Foo_vtable = vtable_create();
     }
     vtable_set(Foo_vtable, slot_stuff, Foo__stuff_o);
     ready = true;
@@ -160,7 +160,7 @@ smoke_test9()
 {
   id foo = Foo__new(Int__from_i64(1), Int__from_i64(2));
   id inner = send(foo, slot_stuff, Int__from_i64(3));
-  id bar = body<InnerClosure_>(inner)->isa_[slot_call3](
+  id bar = body<InnerClosure_>(inner)->isa_->slots[slot_call3](
       inner, slot_call3, Int__from_i64(4), Int__from_i64(5), Int__from_i64(6));
   println(ZEFC_SEND0(bar, slot_thingy));
 }

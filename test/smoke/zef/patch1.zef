@@ -1,0 +1,4 @@
+# patch1 — dispatch ABI acceptance (not from Zef suite)
+# Module A registers ping; module B adds pong (vtable growth);
+# sends use ZEFC_SITE patch cells.
+println("see generated/case_patch1.cpp")

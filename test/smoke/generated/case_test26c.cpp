@@ -15,10 +15,10 @@ namespace smoke {
 namespace {
 
 struct Fn_ {
-  zefc_method* isa_;
+  VTable* isa_;
 };
 
-static zefc_method Fn_vtable[kMaxSelectors];
+static VTable* Fn_vtable = nullptr;
 static int slot_call = 0;
 
 static id
@@ -40,8 +40,8 @@ make_fn()
   static bool ready = false;
   if (!ready) {
     selector_patch(&slot_call, selector_intern("t26c_call_o"));
-    for (int i = 0; i < kMaxSelectors; ++i) {
-      Fn_vtable[i] = doesNotUnderstand;
+    if (!Fn_vtable) {
+      Fn_vtable = vtable_create();
     }
     vtable_set(Fn_vtable, slot_call, Fn__call_o);
     ready = true;

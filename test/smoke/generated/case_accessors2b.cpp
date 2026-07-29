@@ -15,12 +15,12 @@ namespace smoke {
 namespace {
 
 struct Foo_ {
-  zefc_method* isa_;
+  VTable* isa_;
   id a;
   id b;
 };
 
-static zefc_method Foo_vtable[kMaxSelectors];
+static VTable* Foo_vtable = nullptr;
 static int slot_a = 0;
 static int slot_b = 0;
 static int slot_set_b = 0;
@@ -91,8 +91,8 @@ Foo__new()
     selector_patch(&slot_thingy, selector_intern("thingy_o1"));
     selector_patch(&slot_stuff, selector_intern("stuff_o1"));
     selector_patch(&slot_whatever, selector_intern("whatever_oo"));
-    for (int i = 0; i < kMaxSelectors; ++i) {
-      Foo_vtable[i] = doesNotUnderstand;
+    if (!Foo_vtable) {
+      Foo_vtable = vtable_create();
     }
     vtable_set(Foo_vtable, slot_a, Foo__a_o);
     vtable_set(Foo_vtable, slot_b, Foo__b_o);
@@ -117,7 +117,7 @@ smoke_accessors2b()
   id o = Foo__new();
   println(send(Foo__new(), slot_thingy, o));
   println(send(Foo__new(), slot_stuff, o));
-  (void)body<Foo_>(Foo__new())->isa_[slot_whatever](
+  (void)body<Foo_>(Foo__new())->isa_->slots[slot_whatever](
       Foo__new(), slot_whatever, o, Int__from_i64(42));
   println(send(Foo__new(), slot_stuff, o));
 }

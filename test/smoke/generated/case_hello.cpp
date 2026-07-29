@@ -15,13 +15,13 @@ namespace smoke {
 namespace {
 
 struct HelloFoo_ {
-  zefc_method* isa_;
+  VTable* isa_;
   id x;
 };
 
 using HelloFoo = HelloFoo_*;
 
-static zefc_method HelloFoo_vtable[kMaxSelectors];
+static VTable* HelloFoo_vtable = nullptr;
 
 static id HelloFoo__add_o(id self, int selector, ...);
 static id HelloFoo__toString_o(id self, int selector, ...);
@@ -63,9 +63,9 @@ HelloFoo__new_o(id, int selector, id inX)
 static void
 init_hello_foo_vtable()
 {
-  for (int i = 0; i < kMaxSelectors; ++i) {
-    HelloFoo_vtable[i] = doesNotUnderstand;
-  }
+  if (!HelloFoo_vtable) {
+      HelloFoo_vtable = vtable_create();
+    }
   vtable_set(HelloFoo_vtable, zefc_slot_toString_o, HelloFoo__toString_o);
   vtable_set(HelloFoo_vtable, zefc_slot_add_o, HelloFoo__add_o);
 }

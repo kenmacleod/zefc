@@ -13,12 +13,12 @@ namespace smoke {
 namespace {
 
 struct Class_ {
-  zefc_method* isa_;
+  VTable* isa_;
   id call_nested;
 };
 
-static zefc_method Foo_vtable[kMaxSelectors];
-static zefc_method Nested_vtable[kMaxSelectors];
+static VTable* Foo_vtable = nullptr;
+static VTable* Nested_vtable = nullptr;
 static Class_ g_Foo;
 static Class_ g_Nested;
 static int slot_call = 0;
@@ -47,10 +47,12 @@ ensure()
     return;
   }
   selector_patch(&slot_call, selector_intern("sc6_call_o"));
-  for (int i = 0; i < kMaxSelectors; ++i) {
-    Foo_vtable[i] = doesNotUnderstand;
-    Nested_vtable[i] = doesNotUnderstand;
-  }
+  if (!Foo_vtable) {
+      Foo_vtable = vtable_create();
+    }
+    if (!Nested_vtable) {
+      Nested_vtable = vtable_create();
+    }
   vtable_set(Nested_vtable, slot_call, Nested__call_o);
   vtable_set(Foo_vtable, slot_call, Foo__call_o);
   g_Nested.isa_ = Nested_vtable;

@@ -15,13 +15,13 @@ namespace smoke {
 namespace {
 
 struct Bar_ {
-  zefc_method* isa_;
+  VTable* isa_;
   long long a;
   long long b;
   long long c;
 };
 
-static zefc_method Bar_vtable[kMaxSelectors];
+static VTable* Bar_vtable = nullptr;
 
 static id
 Bar__call_o(id self, int selector, ...)
@@ -40,8 +40,8 @@ make_bar(long long a, long long b, long long c)
 {
   static bool ready = false;
   if (!ready) {
-    for (int i = 0; i < kMaxSelectors; ++i) {
-      Bar_vtable[i] = doesNotUnderstand;
+    if (!Bar_vtable) {
+      Bar_vtable = vtable_create();
     }
     vtable_set(Bar_vtable, zefc_slot_add_o, Bar__call_o);
     ready = true;

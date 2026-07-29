@@ -16,11 +16,11 @@ namespace smoke {
 namespace {
 
 struct Scope_ {
-  zefc_method* isa_;
+  VTable* isa_;
   id x_;
 };
 
-static zefc_method Scope_vtable[kMaxSelectors];
+static VTable* Scope_vtable = nullptr;
 static int slot_x = 0;
 static int slot_set_x = 0;
 
@@ -50,8 +50,8 @@ Scope__new()
   if (!ready) {
     selector_patch(&slot_x, selector_intern("t22_x_o"));
     selector_patch(&slot_set_x, selector_intern("t22_set_x_o"));
-    for (int i = 0; i < kMaxSelectors; ++i) {
-      Scope_vtable[i] = doesNotUnderstand;
+    if (!Scope_vtable) {
+      Scope_vtable = vtable_create();
     }
     vtable_set(Scope_vtable, slot_x, Scope__x_o);
     vtable_set(Scope_vtable, slot_set_x, Scope__set_x_o);

@@ -13,10 +13,10 @@ namespace smoke {
 namespace {
 
 struct FooClass_ {
-  zefc_method* isa_;
+  VTable* isa_;
 };
 
-static zefc_method FooClass_vtable[kMaxSelectors];
+static VTable* FooClass_vtable = nullptr;
 static FooClass_ g_Foo;
 static int slot_call = 0;
 
@@ -35,9 +35,9 @@ ensure()
     return;
   }
   selector_patch(&slot_call, selector_intern("sc_call_o"));
-  for (int i = 0; i < kMaxSelectors; ++i) {
-    FooClass_vtable[i] = doesNotUnderstand;
-  }
+  if (!FooClass_vtable) {
+      FooClass_vtable = vtable_create();
+    }
   vtable_set(FooClass_vtable, slot_call, Foo__call_o);
   g_Foo.isa_ = FooClass_vtable;
 }

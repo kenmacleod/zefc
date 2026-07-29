@@ -15,19 +15,19 @@ namespace smoke {
 namespace {
 
 struct Foo_ {
-  zefc_method* isa_;
+  VTable* isa_;
   id a;
   id b;
 };
 
 struct FooClass_ {
-  zefc_method* isa_;
+  VTable* isa_;
   id c;
   id d;
 };
 
-static zefc_method Foo_vtable[kMaxSelectors];
-static zefc_method FooClass_vtable[kMaxSelectors];
+static VTable* Foo_vtable = nullptr;
+static VTable* FooClass_vtable = nullptr;
 static FooClass_ g_FooClass;
 static int slot_a = 0;
 static int slot_b = 0;
@@ -78,10 +78,12 @@ ensure()
   selector_patch(&slot_c, selector_intern("c_o"));
   selector_patch(&slot_d, selector_intern("d_o"));
   selector_patch(&slot_set_d, selector_intern("set_d_o"));
-  for (int i = 0; i < kMaxSelectors; ++i) {
-    Foo_vtable[i] = doesNotUnderstand;
-    FooClass_vtable[i] = doesNotUnderstand;
-  }
+  if (!Foo_vtable) {
+      Foo_vtable = vtable_create();
+    }
+    if (!FooClass_vtable) {
+      FooClass_vtable = vtable_create();
+    }
   vtable_set(Foo_vtable, slot_a, Foo__a_o);
   vtable_set(Foo_vtable, slot_b, Foo__b_o);
   vtable_set(Foo_vtable, slot_set_b, Foo__set_b_o);

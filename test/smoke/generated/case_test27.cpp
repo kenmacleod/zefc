@@ -13,10 +13,10 @@ namespace smoke {
 namespace {
 
 struct Thunk_ {
-  zefc_method* isa_;
+  VTable* isa_;
 };
 
-static zefc_method Thunk_vtable[kMaxSelectors];
+static VTable* Thunk_vtable = nullptr;
 static int slot_call = 0;
 
 static id
@@ -35,8 +35,8 @@ make_thunk()
   static bool ready = false;
   if (!ready) {
     selector_patch(&slot_call, selector_intern("t27_call_o"));
-    for (int i = 0; i < kMaxSelectors; ++i) {
-      Thunk_vtable[i] = doesNotUnderstand;
+    if (!Thunk_vtable) {
+      Thunk_vtable = vtable_create();
     }
     vtable_set(Thunk_vtable, slot_call, Thunk__call_o);
     ready = true;

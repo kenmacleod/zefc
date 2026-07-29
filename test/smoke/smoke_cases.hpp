@@ -72,6 +72,7 @@ void smoke_test16();
 void smoke_test17();
 void smoke_test18();
 void smoke_test11();
+void smoke_patch1();
 void smoke_testc();
 void smoke_test42();
 void smoke_test14();

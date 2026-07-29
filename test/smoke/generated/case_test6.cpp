@@ -17,21 +17,21 @@ namespace smoke {
 namespace {
 
 struct Foo_ {
-  zefc_method* isa_;
+  VTable* isa_;
   id thingy;
   id stuff;
 };
 
 struct Bar_ {
-  zefc_method* isa_;
+  VTable* isa_;
   id thingy;
   id stuff;
   id whatever;
   id blah;
 };
 
-static zefc_method Foo_vtable[kMaxSelectors];
-static zefc_method Bar_vtable[kMaxSelectors];
+static VTable* Foo_vtable = nullptr;
+static VTable* Bar_vtable = nullptr;
 
 static int slot_doShit = 0;
 static int slot_thingy = 0;
@@ -138,9 +138,11 @@ Bar__new(id crap)
   ensure_slots();
   static bool ready = false;
   if (!ready) {
-    for (int i = 0; i < kMaxSelectors; ++i) {
-      Foo_vtable[i] = doesNotUnderstand;
-      Bar_vtable[i] = doesNotUnderstand;
+    if (!Foo_vtable) {
+      Foo_vtable = vtable_create();
+    }
+    if (!Bar_vtable) {
+      Bar_vtable = vtable_create();
     }
     vtable_set(Foo_vtable, slot_thingy, Foo__thingy_o);
     vtable_set(Foo_vtable, slot_stuff, Foo__stuff_o);

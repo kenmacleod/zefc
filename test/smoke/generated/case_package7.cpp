@@ -13,11 +13,11 @@ namespace smoke {
 namespace {
 
 struct Thingy_ {
-  zefc_method* isa_;
+  VTable* isa_;
   id x;
 };
 
-static zefc_method Thingy_vtable[kMaxSelectors];
+static VTable* Thingy_vtable = nullptr;
 
 static id
 Thingy__toString_o(id self, int selector, ...)
@@ -31,8 +31,8 @@ Thingy__new(id x)
 {
   static bool ready = false;
   if (!ready) {
-    for (int i = 0; i < kMaxSelectors; ++i) {
-      Thingy_vtable[i] = doesNotUnderstand;
+    if (!Thingy_vtable) {
+      Thingy_vtable = vtable_create();
     }
     vtable_set(Thingy_vtable, zefc_slot_toString_o, Thingy__toString_o);
     ready = true;
