@@ -11,6 +11,11 @@ BlockItem::~BlockItem() = default;
 BlockItem::BlockItem(BlockItem&&) noexcept = default;
 BlockItem& BlockItem::operator=(BlockItem&&) noexcept = default;
 
+ClassDecl::ClassDecl() = default;
+ClassDecl::~ClassDecl() = default;
+ClassDecl::ClassDecl(ClassDecl&&) noexcept = default;
+ClassDecl& ClassDecl::operator=(ClassDecl&&) noexcept = default;
+
 Parser::Parser(Lexer lex)
   : lex_(std::move(lex))
 {
@@ -198,7 +203,12 @@ Parser::parse_class()
       is_private = true;
     }
     (void)is_private; // access checks not enforced in transpiler yet
-    if (check(TokKind::KwReadable) || check(TokKind::KwAccessible) || check(TokKind::KwMy)) {
+    if (check(TokKind::KwClass)) {
+      ClassDecl::Nested nc;
+      nc.is_static = is_static;
+      nc.decl = std::make_unique<ClassDecl>(parse_class());
+      c.nested.push_back(std::move(nc));
+    } else if (check(TokKind::KwReadable) || check(TokKind::KwAccessible) || check(TokKind::KwMy)) {
       const bool is_my = check(TokKind::KwMy);
       const bool is_acc = check(TokKind::KwAccessible);
       next();

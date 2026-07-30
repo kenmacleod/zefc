@@ -44,9 +44,23 @@ struct Method {
 
 struct ClassDecl {
   std::string name;
+  std::string emit_name; // C++ symbol prefix; empty → use name
   std::string parent; // empty if none
   std::vector<Field> fields;
   std::vector<Method> methods;
+  // Type-nested classes (`static class` / `class` inside a class body).
+  struct Nested {
+    bool is_static = false;
+    std::unique_ptr<ClassDecl> decl;
+  };
+  std::vector<Nested> nested;
+
+  ClassDecl();
+  ~ClassDecl();
+  ClassDecl(ClassDecl&&) noexcept;
+  ClassDecl& operator=(ClassDecl&&) noexcept;
+  ClassDecl(const ClassDecl&) = delete;
+  ClassDecl& operator=(const ClassDecl&) = delete;
 };
 
 struct Expr {
