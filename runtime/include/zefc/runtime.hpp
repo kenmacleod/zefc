@@ -23,8 +23,8 @@ struct id_ {
 using id = id_*;
 
 // Zef-style immediate doubles: IEEE bits + magic stored in the id pointer bits.
-// Immediate int32: value equals its low 32 bits (Zef createInt32). null/0 is int 0.
-// Heap object pointers stay below the double tag and fail the int32 test. Never deref an immediate.
+// Immediate int32: low bit set, payload in bits 1..32 (pointers are even-aligned).
+// Heap object pointers are even and below the double tag. Never deref an immediate.
 inline constexpr uintptr_t kDoubleTagMagic = 0x1000000000000ull;
 
 inline bool
@@ -37,13 +37,14 @@ inline bool
 id_is_int32(id v)
 {
   const uintptr_t u = reinterpret_cast<uintptr_t>(v);
-  return u == static_cast<unsigned>(u);
+  return u < kDoubleTagMagic && (u & 1u) != 0;
 }
 
 inline bool
 id_is_object(id v)
 {
-  return v != nullptr && !id_is_double(v) && !id_is_int32(v);
+  const uintptr_t u = reinterpret_cast<uintptr_t>(v);
+  return u != 0 && u < kDoubleTagMagic && (u & 1u) == 0;
 }
 
 // Heap objects use the same header layout as id_ (isa_ first).

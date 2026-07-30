@@ -1,7 +1,5 @@
 // Generated from ../zef/tests/accessors.zef (hand-maintained).
-// Structure: readable/accessible instance + static fields via get/set sends.
-
-#include <cstdarg>
+// Structure: readable/accessible instance + static fields via field IC.
 
 #include "zefc/dispatch.hpp"
 #include "zefc/int_api.hpp"
@@ -36,34 +34,26 @@ static int slot_c = 0;
 static int slot_d = 0;
 static int slot_set_d = 0;
 
-static id Foo__a_o(id self, int, ...) { return body<Foo_>(self)->a; }
-static id Foo__b_o(id self, int, ...) { return body<Foo_>(self)->b; }
+static id Foo_get_a(id self) { return body<Foo_>(self)->a; }
+static id Foo_get_b(id self) { return body<Foo_>(self)->b; }
+static id Foo_set_b(id self, id v) { body<Foo_>(self)->b = v; return null_id(); }
+static id FooClass_get_c(id self) { return body<FooClass_>(self)->c; }
+static id FooClass_get_d(id self) { return body<FooClass_>(self)->d; }
+static id FooClass_set_d(id self, id v) { body<FooClass_>(self)->d = v; return null_id(); }
 
-static id
-Foo__set_b_o(id self, int selector, ...)
+static id Foo__a_o(id self, int, ...) { return Foo_get_a(self); }
+static id Foo__b_o(id self, int, ...) { return Foo_get_b(self); }
+static id Foo__set_b_o(id self, int selector, id v)
 {
   (void)selector;
-  std::va_list ap;
-  va_start(ap, selector);
-  id v = va_arg(ap, id);
-  va_end(ap);
-  body<Foo_>(self)->b = v;
-  return null_id();
+  return Foo_set_b(self, v);
 }
-
-static id FooClass__c_o(id self, int, ...) { return body<FooClass_>(self)->c; }
-static id FooClass__d_o(id self, int, ...) { return body<FooClass_>(self)->d; }
-
-static id
-FooClass__set_d_o(id self, int selector, ...)
+static id FooClass__c_o(id self, int, ...) { return FooClass_get_c(self); }
+static id FooClass__d_o(id self, int, ...) { return FooClass_get_d(self); }
+static id FooClass__set_d_o(id self, int selector, id v)
 {
   (void)selector;
-  std::va_list ap;
-  va_start(ap, selector);
-  id v = va_arg(ap, id);
-  va_end(ap);
-  body<FooClass_>(self)->d = v;
-  return null_id();
+  return FooClass_set_d(self, v);
 }
 
 static void
@@ -79,17 +69,23 @@ ensure()
   selector_patch(&slot_d, selector_intern("d_o"));
   selector_patch(&slot_set_d, selector_intern("set_d_o"));
   if (!Foo_vtable) {
-      Foo_vtable = vtable_create();
-    }
-    if (!FooClass_vtable) {
-      FooClass_vtable = vtable_create();
-    }
+    Foo_vtable = vtable_create();
+  }
+  if (!FooClass_vtable) {
+    FooClass_vtable = vtable_create();
+  }
   vtable_set(Foo_vtable, slot_a, Foo__a_o);
   vtable_set(Foo_vtable, slot_b, Foo__b_o);
   vtable_set(Foo_vtable, slot_set_b, Foo__set_b_o);
   vtable_set(FooClass_vtable, slot_c, FooClass__c_o);
   vtable_set(FooClass_vtable, slot_d, FooClass__d_o);
   vtable_set(FooClass_vtable, slot_set_d, FooClass__set_d_o);
+  field_register_get(Foo_vtable, slot_a, Foo_get_a);
+  field_register_get(Foo_vtable, slot_b, Foo_get_b);
+  field_register_set(Foo_vtable, slot_set_b, Foo_set_b);
+  field_register_get(FooClass_vtable, slot_c, FooClass_get_c);
+  field_register_get(FooClass_vtable, slot_d, FooClass_get_d);
+  field_register_set(FooClass_vtable, slot_set_d, FooClass_set_d);
   g_FooClass.isa_ = FooClass_vtable;
   g_FooClass.c = Int__from_i64(3);
   g_FooClass.d = Int__from_i64(4);
@@ -113,16 +109,16 @@ smoke_accessors()
 {
   ensure();
   id o = Foo__new();
-  println(ZEFC_SEND0(o, slot_a));
-  println(ZEFC_SEND0(o, slot_b));
-  (void)ZEFC_SEND1(o, slot_set_b, Int__from_i64(42));
-  println(ZEFC_SEND0(o, slot_b));
+  println(ZEFC_IC_GET(o, slot_a));
+  println(ZEFC_IC_GET(o, slot_b));
+  (void)ZEFC_IC_SET(o, slot_set_b, Int__from_i64(42));
+  println(ZEFC_IC_GET(o, slot_b));
 
   id Foo = as_id(&g_FooClass);
-  println(ZEFC_SEND0(Foo, slot_c));
-  println(ZEFC_SEND0(Foo, slot_d));
-  (void)ZEFC_SEND1(Foo, slot_set_d, Int__from_i64(666));
-  println(ZEFC_SEND0(Foo, slot_d));
+  println(ZEFC_IC_GET(Foo, slot_c));
+  println(ZEFC_IC_GET(Foo, slot_d));
+  (void)ZEFC_IC_SET(Foo, slot_set_d, Int__from_i64(666));
+  println(ZEFC_IC_GET(Foo, slot_d));
 }
 
 } // namespace smoke

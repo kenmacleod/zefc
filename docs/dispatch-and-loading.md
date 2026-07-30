@@ -123,4 +123,4 @@ Instruction-count verification under Fil-C++ is a follow-on check, not a gate fo
 
 Next toward the ideal hot path: reloc/text-imm patch for selectors **not** in the closed-world set; optionally flatten `isa_` back to `zefc_method*` with a non-moving slot allocator.
 
-**Monomorphic fields (future compiler):** when analysis proves a fixed receiver class, accessible get/set may lower to direct struct access while vtable methods remain for polymorphic sends. Smoke does **not** apply that by hand — `nbody` uses field sends so the bench matches general transpile shape.
+**Monomorphic fields / field IC:** accessible get/set may use a per-site inline cache (`ZEFC_IC_GET` / `ZEFC_IC_SET`): first access resolves `(vtable, selector) → typed get/set` via `field_register_get` / `field_register_set`; later hits guard on `isa_` and call the cached function (typed field load/store — Fil-C-friendly). Miss without registration falls back to a full send. This mirrors Zef’s field IC idea (Zef caches an offset; we cache a typed accessor under Fil-C).

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "zefc/double_api.hpp"
+#include "zefc/field_ic.hpp"
 #include "zefc/int_api.hpp"
 #include "zefc/runtime.hpp"
 
@@ -9,6 +10,7 @@ namespace zefc {
 // Hot path: vptr (VTable*) → slots[sel] → call.
 // Immediate Double/Int32 short-circuit (Zef Value ops) — no isa_ load.
 // Known names: ZEFC_SEL_* literals. Dynamic names: ZEFC_SITE cells.
+// Field get/set: ZEFC_IC_GET / ZEFC_IC_SET (per-site monomorphic offset cache).
 
 #define ZEFC_SEND0(obj, sel) \
   (zefc::id_is_double(obj) \

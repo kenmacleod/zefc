@@ -31,13 +31,16 @@ static id Int__mul_o(id self, int selector, ...);
 static id
 encode_int32(int value)
 {
-  return reinterpret_cast<id>(static_cast<uintptr_t>(static_cast<unsigned>(value)));
+  // Low-bit tag: objects are even; immediates are odd.
+  const uintptr_t bits = (static_cast<uintptr_t>(static_cast<uint32_t>(value)) << 1) | 1u;
+  return reinterpret_cast<id>(bits);
 }
 
 static long long
 decode_int32(id obj)
 {
-  return static_cast<int>(static_cast<unsigned>(reinterpret_cast<uintptr_t>(obj)));
+  const uintptr_t bits = reinterpret_cast<uintptr_t>(obj);
+  return static_cast<int>(static_cast<uint32_t>(bits >> 1));
 }
 
 static Int
