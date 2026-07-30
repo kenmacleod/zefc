@@ -18,10 +18,13 @@ namespace zefc {
 // ZEFC_IC_*_OFFSET: type-erased byte-offset variant for polymorphic sites.
 
 struct FieldSite {
-  int selector;
+  int selector; // 0 = uninitialized
   VTable* guard; // nullptr = empty / miss
   std::intptr_t offset; // for offset fallback; unused on typed hit
 };
+
+#define ZEFC_CONCAT2(a, b) a##b
+#define ZEFC_CONCAT(a, b) ZEFC_CONCAT2(a, b)
 
 void field_register_get(VTable* vt, int selector, std::size_t offset);
 void field_register_set(VTable* vt, int selector, std::size_t offset);
@@ -38,15 +41,15 @@ field_slot(id obj, std::intptr_t offset)
   return reinterpret_cast<id*>(reinterpret_cast<char*>(obj) + offset);
 }
 
-template<int Uid>
-inline FieldSite*
-field_site_uid(int selector)
+inline void
+field_site_ensure_sel(FieldSite* site, int selector)
 {
-  static FieldSite site{selector, nullptr, 0};
-  return &site;
+  if (site->selector == 0) {
+    site->selector = selector;
+  }
 }
 
-// --- Typed field IC (steady-state: guard + member access) ---
+// --- Typed field IC (steady-state: unguarded member access) ---
 
 template<typename Body, id Body::*Member>
 id zefc_ic_get_field_miss(id obj, FieldSite* site)
@@ -126,19 +129,41 @@ zefc_ic_set_offset(id obj, FieldSite* site, id value)
   return zefc_ic_set_offset_miss(obj, site, value);
 }
 
-// Transpile-shaped default: typed member IC.
+// Unique FieldSite per expansion: statement-expr + __COUNTER__ (not template<__COUNTER__>).
 #define ZEFC_IC_GET(obj, sel_imm, BodyTy, member) \
-  (zefc::zefc_ic_get_field<BodyTy, &BodyTy::member>( \
-    (obj), zefc::field_site_uid<__COUNTER__>((sel_imm))))
+  ZEFC_IC_GET_I((obj), (sel_imm), BodyTy, member, __COUNTER__)
+#define ZEFC_IC_GET_I(obj, sel_imm, BodyTy, member, N) \
+  ({ \
+    static zefc::FieldSite ZEFC_CONCAT(_zefc_fs_, N){0, nullptr, 0}; \
+    zefc::field_site_ensure_sel(&ZEFC_CONCAT(_zefc_fs_, N), (sel_imm)); \
+    zefc::zefc_ic_get_field<BodyTy, &BodyTy::member>((obj), &ZEFC_CONCAT(_zefc_fs_, N)); \
+  })
 
 #define ZEFC_IC_SET(obj, sel_imm, BodyTy, member, val) \
-  (zefc::zefc_ic_set_field<BodyTy, &BodyTy::member>( \
-    (obj), zefc::field_site_uid<__COUNTER__>((sel_imm)), (val)))
+  ZEFC_IC_SET_I((obj), (sel_imm), BodyTy, member, (val), __COUNTER__)
+#define ZEFC_IC_SET_I(obj, sel_imm, BodyTy, member, val, N) \
+  ({ \
+    static zefc::FieldSite ZEFC_CONCAT(_zefc_fs_, N){0, nullptr, 0}; \
+    zefc::field_site_ensure_sel(&ZEFC_CONCAT(_zefc_fs_, N), (sel_imm)); \
+    zefc::zefc_ic_set_field<BodyTy, &BodyTy::member>((obj), &ZEFC_CONCAT(_zefc_fs_, N), (val)); \
+  })
 
 #define ZEFC_IC_GET_OFFSET(obj, sel_imm) \
-  (zefc::zefc_ic_get_offset((obj), zefc::field_site_uid<__COUNTER__>((sel_imm))))
+  ZEFC_IC_GET_OFFSET_I((obj), (sel_imm), __COUNTER__)
+#define ZEFC_IC_GET_OFFSET_I(obj, sel_imm, N) \
+  ({ \
+    static zefc::FieldSite ZEFC_CONCAT(_zefc_fs_, N){0, nullptr, 0}; \
+    zefc::field_site_ensure_sel(&ZEFC_CONCAT(_zefc_fs_, N), (sel_imm)); \
+    zefc::zefc_ic_get_offset((obj), &ZEFC_CONCAT(_zefc_fs_, N)); \
+  })
 
 #define ZEFC_IC_SET_OFFSET(obj, sel_imm, val) \
-  (zefc::zefc_ic_set_offset((obj), zefc::field_site_uid<__COUNTER__>((sel_imm)), (val)))
+  ZEFC_IC_SET_OFFSET_I((obj), (sel_imm), (val), __COUNTER__)
+#define ZEFC_IC_SET_OFFSET_I(obj, sel_imm, val, N) \
+  ({ \
+    static zefc::FieldSite ZEFC_CONCAT(_zefc_fs_, N){0, nullptr, 0}; \
+    zefc::field_site_ensure_sel(&ZEFC_CONCAT(_zefc_fs_, N), (sel_imm)); \
+    zefc::zefc_ic_set_offset((obj), &ZEFC_CONCAT(_zefc_fs_, N), (val)); \
+  })
 
 } // namespace zefc

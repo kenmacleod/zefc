@@ -4,6 +4,7 @@ runtime_sources = files(
   'src/module.cpp',
   'src/known_selectors.cpp',
   'src/field_ic.cpp',
+  'src/call_ic.cpp',
 )
 
 runtime_lib = static_library(

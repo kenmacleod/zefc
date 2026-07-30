@@ -698,18 +698,7 @@ Packet__new(id inLink, id inId, id inKind)
   return as_id(o);
 }
 
-// ZEFC_SEND4 not defined — use slots directly for 4-arg methods.
-static id
-send4(id obj, int sel, id a, id b, id c, id d)
-{
-  return obj->isa_->slots[sel](obj, sel, a, b, c, d);
-}
-
-static id
-send3(id obj, int sel, id a, id b, id c)
-{
-  return obj->isa_->slots[sel](obj, sel, a, b, c);
-}
+// ZEFC_SEND3/4 cover Scheduler multi-arg setup (method IC).
 
 static id
 Sch__addTask_oooo(id self, int, id idv, id priority, id queue, id task)
@@ -724,7 +713,7 @@ Sch__addTask_oooo(id self, int, id idv, id priority, id queue, id task)
 static id
 Sch__addRunningTask_oooo(id self, int, id idv, id priority, id queue, id task)
 {
-  (void)send4(self, sel_addTask, idv, priority, queue, task);
+  (void)ZEFC_SEND4(self, sel_addTask, idv, priority, queue, task);
   (void)ZEFC_SEND0(ZEFC_IC_GET(self, sel_currentTcb, Scheduler_, currentTcb), sel_setRunning);
   return null_id();
 }
@@ -732,27 +721,27 @@ Sch__addRunningTask_oooo(id self, int, id idv, id priority, id queue, id task)
 static id
 Sch__addIdleTask_oooo(id self, int, id idv, id priority, id queue, id count)
 {
-  return send4(self, sel_addRunningTask, idv, priority, queue,
-               Idle__new(self, I(1), count));
+  return ZEFC_SEND4(self, sel_addRunningTask, idv, priority, queue,
+                    Idle__new(self, I(1), count));
 }
 
 static id
 Sch__addWorkerTask_ooo(id self, int, id idv, id priority, id queue)
 {
-  return send4(self, sel_addTask, idv, priority, queue,
-               Worker__new(self, I(kID_HANDLER_A), I(0)));
+  return ZEFC_SEND4(self, sel_addTask, idv, priority, queue,
+                    Worker__new(self, I(kID_HANDLER_A), I(0)));
 }
 
 static id
 Sch__addHandlerTask_ooo(id self, int, id idv, id priority, id queue)
 {
-  return send4(self, sel_addTask, idv, priority, queue, Handler__new(self));
+  return ZEFC_SEND4(self, sel_addTask, idv, priority, queue, Handler__new(self));
 }
 
 static id
 Sch__addDeviceTask_ooo(id self, int, id idv, id priority, id queue)
 {
-  return send4(self, sel_addTask, idv, priority, queue, Device__new(self));
+  return ZEFC_SEND4(self, sel_addTask, idv, priority, queue, Device__new(self));
 }
 
 static id
@@ -1004,24 +993,24 @@ static void
 runRichards()
 {
   id scheduler = Scheduler__new();
-  (void)send4(scheduler, sel_addIdleTask, I(kID_IDLE), I(0), null_id(), I(kCOUNT));
+  (void)ZEFC_SEND4(scheduler, sel_addIdleTask, I(kID_IDLE), I(0), null_id(), I(kCOUNT));
 
   id queue = Packet__new(null_id(), I(kID_WORKER), I(kKIND_WORK));
   queue = Packet__new(queue, I(kID_WORKER), I(kKIND_WORK));
-  (void)send3(scheduler, sel_addWorkerTask, I(kID_WORKER), I(1000), queue);
+  (void)ZEFC_SEND3(scheduler, sel_addWorkerTask, I(kID_WORKER), I(1000), queue);
 
   queue = Packet__new(null_id(), I(kID_DEVICE_A), I(kKIND_DEVICE));
   queue = Packet__new(queue, I(kID_DEVICE_A), I(kKIND_DEVICE));
   queue = Packet__new(queue, I(kID_DEVICE_A), I(kKIND_DEVICE));
-  (void)send3(scheduler, sel_addHandlerTask, I(kID_HANDLER_A), I(2000), queue);
+  (void)ZEFC_SEND3(scheduler, sel_addHandlerTask, I(kID_HANDLER_A), I(2000), queue);
 
   queue = Packet__new(null_id(), I(kID_DEVICE_B), I(kKIND_DEVICE));
   queue = Packet__new(queue, I(kID_DEVICE_B), I(kKIND_DEVICE));
   queue = Packet__new(queue, I(kID_DEVICE_B), I(kKIND_DEVICE));
-  (void)send3(scheduler, sel_addHandlerTask, I(kID_HANDLER_B), I(3000), queue);
+  (void)ZEFC_SEND3(scheduler, sel_addHandlerTask, I(kID_HANDLER_B), I(3000), queue);
 
-  (void)send3(scheduler, sel_addDeviceTask, I(kID_DEVICE_A), I(4000), null_id());
-  (void)send3(scheduler, sel_addDeviceTask, I(kID_DEVICE_B), I(5000), null_id());
+  (void)ZEFC_SEND3(scheduler, sel_addDeviceTask, I(kID_DEVICE_A), I(4000), null_id());
+  (void)ZEFC_SEND3(scheduler, sel_addDeviceTask, I(kID_DEVICE_B), I(5000), null_id());
 
   (void)ZEFC_SEND0(scheduler, sel_schedule);
 
