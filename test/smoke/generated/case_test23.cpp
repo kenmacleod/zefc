@@ -15,7 +15,7 @@ namespace smoke {
 namespace {
 
 struct Bar_ {
-  VTable* isa_;
+  IsaPtr isa_;
   long long a;
   long long b;
   long long c;
@@ -47,7 +47,7 @@ make_bar(long long a, long long b, long long c)
     ready = true;
   }
   Bar_* o = alloc<Bar_>();
-  o->isa_ = Bar_vtable;
+  zefc_set_isa(o, Bar_vtable);
   o->a = a;
   o->b = b;
   o->c = c;

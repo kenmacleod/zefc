@@ -3,23 +3,17 @@
 #include "zefc/double_api.hpp"
 #include "zefc/field_ic.hpp"
 #include "zefc/int_api.hpp"
+#include "zefc/object_dispatch.hpp"
 #include "zefc/runtime.hpp"
 
-// Method dispatch for fixed-site ZEFC_SEND* (object receivers):
+// Object ZEFC_SEND* — one API, four compile-time shapes (see object_dispatch.hpp):
 //
-//   Meson: -Dmethod_dispatch=ic|vtable  →  -DZEFC_METHOD_IC=1|0
+//   Meson -Dobject_dispatch=slots|ic|flat|site  →  -DZEFC_OBJECT_DISPATCH=N
 //
-//   ic (default): per-site CallSite — isa_ guard + cached callee (Zef-style).
-//   vtable:       every send does isa_->slots[sel](…) (C++-virtual shape).
-//
-// Immediate Double/Int32 short-circuit in both modes. Field IC is separate
-// (ZEFC_IC_GET/SET). Varying-selector send() is always pure vtable.
+// Immediate Double/Int32 short-circuit in all modes. Field IC unchanged.
+// Varying-selector send() always uses zefc_method_at (table path).
 
-#ifndef ZEFC_METHOD_IC
-#define ZEFC_METHOD_IC 1
-#endif
-
-#if ZEFC_METHOD_IC
+#if ZEFC_OBJECT_DISPATCH == ZEFC_OD_IC || ZEFC_OBJECT_DISPATCH == ZEFC_OD_SITE
 #include "zefc/call_ic.hpp"
 #endif
 
@@ -28,33 +22,40 @@ namespace zefc {
 #define ZEFC_CONCAT2(a, b) a##b
 #define ZEFC_CONCAT(a, b) ZEFC_CONCAT2(a, b)
 
-#if ZEFC_METHOD_IC
+#if ZEFC_OBJECT_DISPATCH == ZEFC_OD_IC
 
-// --- method IC: unique CallSite per expansion (statement-expr + __COUNTER__) ---
-// Do not use template<__COUNTER__> — ODR-merges across TUs and crosses selectors.
-
+// --- guarded method IC ---
+// Evaluate obj before sel so ctors that intern selectors (Foo__new) run first.
 #define ZEFC_SEND0(obj, sel) ZEFC_SEND0_I((obj), (sel), __COUNTER__)
 #define ZEFC_SEND0_I(obj, sel, N) \
   ({ \
     static zefc::CallSite ZEFC_CONCAT(_zefc_cs_, N){0, nullptr, nullptr}; \
+    zefc::id ZEFC_CONCAT(_zefc_r_, N) = (obj); \
     zefc::call_site_ensure_sel(&ZEFC_CONCAT(_zefc_cs_, N), (sel)); \
-    zefc::zefc_call0((obj), &ZEFC_CONCAT(_zefc_cs_, N)); \
+    zefc::zefc_call0(ZEFC_CONCAT(_zefc_r_, N), &ZEFC_CONCAT(_zefc_cs_, N)); \
   })
 
 #define ZEFC_SEND1(obj, sel, a1) ZEFC_SEND1_I((obj), (sel), (a1), __COUNTER__)
 #define ZEFC_SEND1_I(obj, sel, a1, N) \
   ({ \
     static zefc::CallSite ZEFC_CONCAT(_zefc_cs_, N){0, nullptr, nullptr}; \
+    zefc::id ZEFC_CONCAT(_zefc_r_, N) = (obj); \
+    zefc::id ZEFC_CONCAT(_zefc_a1_, N) = (a1); \
     zefc::call_site_ensure_sel(&ZEFC_CONCAT(_zefc_cs_, N), (sel)); \
-    zefc::zefc_call1((obj), &ZEFC_CONCAT(_zefc_cs_, N), (a1)); \
+    zefc::zefc_call1(ZEFC_CONCAT(_zefc_r_, N), &ZEFC_CONCAT(_zefc_cs_, N), \
+                     ZEFC_CONCAT(_zefc_a1_, N)); \
   })
 
 #define ZEFC_SEND2(obj, sel, a1, a2) ZEFC_SEND2_I((obj), (sel), (a1), (a2), __COUNTER__)
 #define ZEFC_SEND2_I(obj, sel, a1, a2, N) \
   ({ \
     static zefc::CallSite ZEFC_CONCAT(_zefc_cs_, N){0, nullptr, nullptr}; \
+    zefc::id ZEFC_CONCAT(_zefc_r_, N) = (obj); \
+    zefc::id ZEFC_CONCAT(_zefc_a1_, N) = (a1); \
+    zefc::id ZEFC_CONCAT(_zefc_a2_, N) = (a2); \
     zefc::call_site_ensure_sel(&ZEFC_CONCAT(_zefc_cs_, N), (sel)); \
-    zefc::zefc_call2((obj), &ZEFC_CONCAT(_zefc_cs_, N), (a1), (a2)); \
+    zefc::zefc_call2(ZEFC_CONCAT(_zefc_r_, N), &ZEFC_CONCAT(_zefc_cs_, N), \
+                     ZEFC_CONCAT(_zefc_a1_, N), ZEFC_CONCAT(_zefc_a2_, N)); \
   })
 
 #define ZEFC_SEND3(obj, sel, a1, a2, a3) \
@@ -62,8 +63,14 @@ namespace zefc {
 #define ZEFC_SEND3_I(obj, sel, a1, a2, a3, N) \
   ({ \
     static zefc::CallSite ZEFC_CONCAT(_zefc_cs_, N){0, nullptr, nullptr}; \
+    zefc::id ZEFC_CONCAT(_zefc_r_, N) = (obj); \
+    zefc::id ZEFC_CONCAT(_zefc_a1_, N) = (a1); \
+    zefc::id ZEFC_CONCAT(_zefc_a2_, N) = (a2); \
+    zefc::id ZEFC_CONCAT(_zefc_a3_, N) = (a3); \
     zefc::call_site_ensure_sel(&ZEFC_CONCAT(_zefc_cs_, N), (sel)); \
-    zefc::zefc_call3((obj), &ZEFC_CONCAT(_zefc_cs_, N), (a1), (a2), (a3)); \
+    zefc::zefc_call3(ZEFC_CONCAT(_zefc_r_, N), &ZEFC_CONCAT(_zefc_cs_, N), \
+                     ZEFC_CONCAT(_zefc_a1_, N), ZEFC_CONCAT(_zefc_a2_, N), \
+                     ZEFC_CONCAT(_zefc_a3_, N)); \
   })
 
 #define ZEFC_SEND4(obj, sel, a1, a2, a3, a4) \
@@ -71,12 +78,112 @@ namespace zefc {
 #define ZEFC_SEND4_I(obj, sel, a1, a2, a3, a4, N) \
   ({ \
     static zefc::CallSite ZEFC_CONCAT(_zefc_cs_, N){0, nullptr, nullptr}; \
+    zefc::id ZEFC_CONCAT(_zefc_r_, N) = (obj); \
+    zefc::id ZEFC_CONCAT(_zefc_a1_, N) = (a1); \
+    zefc::id ZEFC_CONCAT(_zefc_a2_, N) = (a2); \
+    zefc::id ZEFC_CONCAT(_zefc_a3_, N) = (a3); \
+    zefc::id ZEFC_CONCAT(_zefc_a4_, N) = (a4); \
     zefc::call_site_ensure_sel(&ZEFC_CONCAT(_zefc_cs_, N), (sel)); \
-    zefc::zefc_call4((obj), &ZEFC_CONCAT(_zefc_cs_, N), (a1), (a2), (a3), (a4)); \
+    zefc::zefc_call4(ZEFC_CONCAT(_zefc_r_, N), &ZEFC_CONCAT(_zefc_cs_, N), \
+                     ZEFC_CONCAT(_zefc_a1_, N), ZEFC_CONCAT(_zefc_a2_, N), \
+                     ZEFC_CONCAT(_zefc_a3_, N), ZEFC_CONCAT(_zefc_a4_, N)); \
   })
 
-#else // !ZEFC_METHOD_IC — pure vtable
+#elif ZEFC_OBJECT_DISPATCH == ZEFC_OD_SITE
 
+// --- plan B: sticky site callee (fill on first use; no guard) ---
+#define ZEFC_SEND0(obj, sel) ZEFC_SEND0_I((obj), (sel), __COUNTER__)
+#define ZEFC_SEND0_I(obj, sel, N) \
+  ({ \
+    static zefc::CallSite ZEFC_CONCAT(_zefc_cs_, N){0, nullptr, nullptr}; \
+    zefc::id ZEFC_CONCAT(_zefc_r_, N) = (obj); \
+    zefc::call_site_ensure_sel(&ZEFC_CONCAT(_zefc_cs_, N), (sel)); \
+    zefc::zefc_site_call0(ZEFC_CONCAT(_zefc_r_, N), &ZEFC_CONCAT(_zefc_cs_, N)); \
+  })
+
+#define ZEFC_SEND1(obj, sel, a1) ZEFC_SEND1_I((obj), (sel), (a1), __COUNTER__)
+#define ZEFC_SEND1_I(obj, sel, a1, N) \
+  ({ \
+    static zefc::CallSite ZEFC_CONCAT(_zefc_cs_, N){0, nullptr, nullptr}; \
+    zefc::id ZEFC_CONCAT(_zefc_r_, N) = (obj); \
+    zefc::id ZEFC_CONCAT(_zefc_a1_, N) = (a1); \
+    zefc::call_site_ensure_sel(&ZEFC_CONCAT(_zefc_cs_, N), (sel)); \
+    zefc::zefc_site_call1(ZEFC_CONCAT(_zefc_r_, N), &ZEFC_CONCAT(_zefc_cs_, N), \
+                          ZEFC_CONCAT(_zefc_a1_, N)); \
+  })
+
+#define ZEFC_SEND2(obj, sel, a1, a2) ZEFC_SEND2_I((obj), (sel), (a1), (a2), __COUNTER__)
+#define ZEFC_SEND2_I(obj, sel, a1, a2, N) \
+  ({ \
+    static zefc::CallSite ZEFC_CONCAT(_zefc_cs_, N){0, nullptr, nullptr}; \
+    zefc::id ZEFC_CONCAT(_zefc_r_, N) = (obj); \
+    zefc::id ZEFC_CONCAT(_zefc_a1_, N) = (a1); \
+    zefc::id ZEFC_CONCAT(_zefc_a2_, N) = (a2); \
+    zefc::call_site_ensure_sel(&ZEFC_CONCAT(_zefc_cs_, N), (sel)); \
+    zefc::zefc_site_call2(ZEFC_CONCAT(_zefc_r_, N), &ZEFC_CONCAT(_zefc_cs_, N), \
+                          ZEFC_CONCAT(_zefc_a1_, N), ZEFC_CONCAT(_zefc_a2_, N)); \
+  })
+
+#define ZEFC_SEND3(obj, sel, a1, a2, a3) \
+  ZEFC_SEND3_I((obj), (sel), (a1), (a2), (a3), __COUNTER__)
+#define ZEFC_SEND3_I(obj, sel, a1, a2, a3, N) \
+  ({ \
+    static zefc::CallSite ZEFC_CONCAT(_zefc_cs_, N){0, nullptr, nullptr}; \
+    zefc::id ZEFC_CONCAT(_zefc_r_, N) = (obj); \
+    zefc::id ZEFC_CONCAT(_zefc_a1_, N) = (a1); \
+    zefc::id ZEFC_CONCAT(_zefc_a2_, N) = (a2); \
+    zefc::id ZEFC_CONCAT(_zefc_a3_, N) = (a3); \
+    zefc::call_site_ensure_sel(&ZEFC_CONCAT(_zefc_cs_, N), (sel)); \
+    zefc::zefc_site_call3(ZEFC_CONCAT(_zefc_r_, N), &ZEFC_CONCAT(_zefc_cs_, N), \
+                          ZEFC_CONCAT(_zefc_a1_, N), ZEFC_CONCAT(_zefc_a2_, N), \
+                          ZEFC_CONCAT(_zefc_a3_, N)); \
+  })
+
+#define ZEFC_SEND4(obj, sel, a1, a2, a3, a4) \
+  ZEFC_SEND4_I((obj), (sel), (a1), (a2), (a3), (a4), __COUNTER__)
+#define ZEFC_SEND4_I(obj, sel, a1, a2, a3, a4, N) \
+  ({ \
+    static zefc::CallSite ZEFC_CONCAT(_zefc_cs_, N){0, nullptr, nullptr}; \
+    zefc::id ZEFC_CONCAT(_zefc_r_, N) = (obj); \
+    zefc::id ZEFC_CONCAT(_zefc_a1_, N) = (a1); \
+    zefc::id ZEFC_CONCAT(_zefc_a2_, N) = (a2); \
+    zefc::id ZEFC_CONCAT(_zefc_a3_, N) = (a3); \
+    zefc::id ZEFC_CONCAT(_zefc_a4_, N) = (a4); \
+    zefc::call_site_ensure_sel(&ZEFC_CONCAT(_zefc_cs_, N), (sel)); \
+    zefc::zefc_site_call4(ZEFC_CONCAT(_zefc_r_, N), &ZEFC_CONCAT(_zefc_cs_, N), \
+                          ZEFC_CONCAT(_zefc_a1_, N), ZEFC_CONCAT(_zefc_a2_, N), \
+                          ZEFC_CONCAT(_zefc_a3_, N), ZEFC_CONCAT(_zefc_a4_, N)); \
+  })
+
+#elif ZEFC_OBJECT_DISPATCH == ZEFC_OD_FLAT
+
+// --- plan A: flat isa_[sel] ---
+#define ZEFC_SEND0(obj, sel) \
+  (zefc::id_is_double(obj) \
+     ? zefc::zefc_double_send0((obj), (sel)) \
+     : (zefc::id_is_int32(obj) \
+          ? zefc::zefc_int_send0((obj), (sel)) \
+          : ((obj)->isa_[(sel)]((obj), (sel)))))
+
+#define ZEFC_SEND1(obj, sel, a1) \
+  (zefc::id_is_double(obj) \
+     ? zefc::zefc_double_send1((obj), (sel), (a1)) \
+     : (zefc::id_is_int32(obj) \
+          ? zefc::zefc_int_send1((obj), (sel), (a1)) \
+          : ((obj)->isa_[(sel)]((obj), (sel), (a1)))))
+
+#define ZEFC_SEND2(obj, sel, a1, a2) \
+  ((obj)->isa_[(sel)]((obj), (sel), (a1), (a2)))
+
+#define ZEFC_SEND3(obj, sel, a1, a2, a3) \
+  ((obj)->isa_[(sel)]((obj), (sel), (a1), (a2), (a3)))
+
+#define ZEFC_SEND4(obj, sel, a1, a2, a3, a4) \
+  ((obj)->isa_[(sel)]((obj), (sel), (a1), (a2), (a3), (a4)))
+
+#else // ZEFC_OD_SLOTS
+
+// --- VTable* handle + slots[sel] ---
 #define ZEFC_SEND0(obj, sel) \
   (zefc::id_is_double(obj) \
      ? zefc::zefc_double_send0((obj), (sel)) \
@@ -100,9 +207,8 @@ namespace zefc {
 #define ZEFC_SEND4(obj, sel, a1, a2, a3, a4) \
   ((obj)->isa_->slots[(sel)]((obj), (sel), (a1), (a2), (a3), (a4)))
 
-#endif // ZEFC_METHOD_IC
+#endif // ZEFC_OBJECT_DISPATCH
 
-// Varying selector (not a fixed call site) — always pure vtable. Prefer ZEFC_SEND*.
 inline id send(id recv, int sel, id arg0)
 {
   if (id_is_double(recv)) {
@@ -111,7 +217,7 @@ inline id send(id recv, int sel, id arg0)
   if (id_is_int32(recv)) {
     return zefc_int_send1(recv, sel, arg0);
   }
-  return recv->isa_->slots[sel](recv, sel, arg0);
+  return zefc_method_at(recv, sel)(recv, sel, arg0);
 }
 
 #define ZEFC_SITE(mangled_lit) \

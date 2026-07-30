@@ -13,7 +13,7 @@ namespace smoke {
 namespace {
 
 struct FooClass_ {
-  VTable* isa_;
+  IsaPtr isa_;
 };
 
 static VTable* FooClass_vtable = nullptr;
@@ -50,7 +50,7 @@ ensure()
     }
   vtable_set(FooClass_vtable, slot_thingy, Foo__thingy_o);
   vtable_set(FooClass_vtable, slot_stuff, Foo__stuff_o);
-  g_Foo.isa_ = FooClass_vtable;
+  zefc_set_isa(&g_Foo, FooClass_vtable);
 }
 
 } // namespace

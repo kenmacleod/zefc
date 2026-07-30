@@ -15,12 +15,12 @@ namespace smoke {
 namespace {
 
 struct WTF_ {
-  VTable* isa_;
+  IsaPtr isa_;
   id baz;
 };
 
 struct WTFClass_ {
-  VTable* isa_;
+  IsaPtr isa_;
   id captured_arg;
 };
 
@@ -57,7 +57,7 @@ WTFClass__call_o(id self, int selector, ...)
     inst_ready = true;
   }
   WTF_* o = alloc<WTF_>();
-  o->isa_ = WTF_vtable;
+  zefc_set_isa(o, WTF_vtable);
   o->baz = send(inBaz, ZEFC_SITE("add_o"), cls->captured_arg);
   return as_id(o);
 }
@@ -75,7 +75,7 @@ thingy(id arg)
     ready = true;
   }
   WTFClass_* cls = alloc<WTFClass_>();
-  cls->isa_ = WTFClass_vtable;
+  zefc_set_isa(cls, WTFClass_vtable);
   cls->captured_arg = arg;
   return as_id(cls);
 }

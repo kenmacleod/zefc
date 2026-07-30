@@ -25,7 +25,7 @@ constexpr double kSOLAR_MASS = 4. * kPI * kPI;
 constexpr double kDAYS_PER_YEAR = 365.24;
 
 struct Body_ {
-  VTable* isa_;
+  IsaPtr isa_;
   id x;
   id y;
   id z;
@@ -132,7 +132,7 @@ Body__new(double inX, double inY, double inZ, double inVX, double inVY, double i
 {
   ensure_body();
   Body_* o = alloc<Body_>();
-  o->isa_ = Body_vtable;
+  zefc_set_isa(o, Body_vtable);
   o->x = Double__from_f64(inX);
   o->y = Double__from_f64(inY);
   o->z = Double__from_f64(inZ);

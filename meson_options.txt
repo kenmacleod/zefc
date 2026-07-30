@@ -13,9 +13,9 @@ option(
 )
 
 option(
-  'method_dispatch',
+  'object_dispatch',
   type : 'combo',
-  choices : ['ic', 'vtable'],
+  choices : ['ic', 'slots', 'flat', 'site'],
   value : 'ic',
-  description : 'ZEFC_SEND* object path: ic = per-site method IC (guard + cached callee); vtable = isa_->slots[sel] every send. Immediate Double/Int32 short-circuit in both. Field IC unchanged.',
+  description : 'ZEFC_SEND* object path: ic = guarded method IC; slots = isa_->slots[sel]; flat = isa_[sel] with instance fix-up on grow; site = sticky callee (fill on first use). Field IC / immediates unchanged.',
 )

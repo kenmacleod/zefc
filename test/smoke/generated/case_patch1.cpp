@@ -15,7 +15,7 @@ namespace smoke {
 namespace {
 
 struct PingPong_ {
-  VTable* isa_;
+  IsaPtr isa_;
 };
 
 static VTable* PingPong_vtable = nullptr;
@@ -60,7 +60,7 @@ static id
 make_obj()
 {
   PingPong_* o = alloc<PingPong_>();
-  o->isa_ = PingPong_vtable;
+  zefc_set_isa(o, PingPong_vtable);
   return as_id(o);
 }
 

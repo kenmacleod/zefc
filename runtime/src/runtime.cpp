@@ -35,6 +35,22 @@ registered_vtables()
   return vts;
 }
 
+#if ZEFC_OBJECT_DISPATCH == ZEFC_OD_FLAT
+std::map<id, VTable*>&
+live_objects()
+{
+  static std::map<id, VTable*> objs;
+  return objs;
+}
+
+std::map<zefc_method*, VTable*>&
+slots_to_vtable()
+{
+  static std::map<zefc_method*, VTable*> map;
+  return map;
+}
+#endif
+
 constexpr int kInitialVTableCapacity = 32;
 
 void
@@ -46,6 +62,58 @@ vtable_fill_dnu(VTable* vt, int from, int to)
 }
 
 } // namespace
+
+VTable*
+zefc_vtable_of(id obj)
+{
+  if (!id_is_object(obj)) {
+    return nullptr;
+  }
+#if ZEFC_OBJECT_DISPATCH == ZEFC_OD_FLAT
+  const auto it = slots_to_vtable().find(obj->isa_);
+  if (it == slots_to_vtable().end()) {
+    std::fprintf(stderr, "zefc_vtable_of: unknown isa_ %p\n", static_cast<void*>(obj->isa_));
+    std::exit(1);
+  }
+  return it->second;
+#else
+  return obj->isa_;
+#endif
+}
+
+zefc_method
+zefc_method_at(id obj, int selector)
+{
+#if ZEFC_OBJECT_DISPATCH == ZEFC_OD_FLAT
+  return obj->isa_[selector];
+#else
+  return obj->isa_->slots[selector];
+#endif
+}
+
+void
+zefc_set_isa(id obj, VTable* vt)
+{
+  if (!obj || !vt) {
+    std::fprintf(stderr, "zefc_set_isa: null\n");
+    std::exit(1);
+  }
+#if ZEFC_OBJECT_DISPATCH == ZEFC_OD_FLAT
+  obj->isa_ = vt->slots;
+  zefc_object_register(obj, vt);
+#else
+  obj->isa_ = vt;
+#endif
+}
+
+#if ZEFC_OBJECT_DISPATCH == ZEFC_OD_FLAT
+void
+zefc_object_register(id obj, VTable* vt)
+{
+  slots_to_vtable()[vt->slots] = vt;
+  live_objects()[obj] = vt;
+}
+#endif
 
 id doesNotUnderstand(id self, int selector, ...)
 {
@@ -135,6 +203,9 @@ vtable_create()
   vt->capacity = kInitialVTableCapacity;
   vt->slots = new zefc_method[static_cast<size_t>(vt->capacity)];
   vtable_fill_dnu(vt, 0, vt->capacity);
+#if ZEFC_OBJECT_DISPATCH == ZEFC_OD_FLAT
+  slots_to_vtable()[vt->slots] = vt;
+#endif
   vtable_register(vt);
   return vt;
 }
@@ -172,6 +243,7 @@ vtables_ensure_capacity(int min_capacity)
     while (new_cap < min_capacity) {
       new_cap *= 2;
     }
+    zefc_method* old_slots = vt->slots;
     zefc_method* neu = new zefc_method[static_cast<size_t>(new_cap)];
     for (int i = 0; i < vt->capacity; ++i) {
       neu[i] = vt->slots[i];
@@ -182,6 +254,17 @@ vtables_ensure_capacity(int min_capacity)
     delete[] vt->slots;
     vt->slots = neu;
     vt->capacity = new_cap;
+#if ZEFC_OBJECT_DISPATCH == ZEFC_OD_FLAT
+    slots_to_vtable().erase(old_slots);
+    slots_to_vtable()[neu] = vt;
+    for (auto& entry : live_objects()) {
+      if (entry.second == vt && entry.first) {
+        entry.first->isa_ = neu;
+      }
+    }
+#else
+    (void)old_slots;
+#endif
   }
 }
 

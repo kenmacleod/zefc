@@ -12,7 +12,7 @@ namespace zefc {
 namespace runtime {
 
 struct String_ {
-  VTable* isa_;
+  IsaPtr isa_;
   char* bytes;
 };
 
@@ -27,7 +27,7 @@ static String
 String__from_utf8_impl(const char* utf8)
 {
   String s = alloc<String_>();
-  s->isa_ = String_vtable;
+  zefc_set_isa(s, String_vtable);
   const size_t n = std::strlen(utf8);
   s->bytes = new char[n + 1];
   std::memcpy(s->bytes, utf8, n + 1);
@@ -63,7 +63,7 @@ String__add_o(id self, int selector, ...)
   std::memcpy(out, a, na);
   std::memcpy(out + na, b, nb + 1);
   String s = alloc<String_>();
-  s->isa_ = String_vtable;
+  zefc_set_isa(s, String_vtable);
   s->bytes = out;
   return as_id(s);
 }

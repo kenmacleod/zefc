@@ -14,27 +14,37 @@ This document is the contract for ZefC’s Orchard-style dispatch under dynamic 
 
 | Mechanism | Role | ZefC today | Headed |
 |-----------|------|------------|--------|
-| **Vtable send** | Polymorphic / unknown methods: `isa_` → `slots[sel]` → call | Landed as miss path. Steady-state default: **per-site method IC** via `ZEFC_SEND*` (`isa_` guard + cached callee). Compile-time A/B: `-Dmethod_dispatch=ic\|vtable` (`ZEFC_METHOD_IC`) | Optional unguarded sites when CHA proves monomorphic; reloc/text-imm for late sels |
+| **Vtable send** | Polymorphic / unknown methods | Default **method IC**; A/B via `-Dobject_dispatch=ic\|slots\|flat\|site` (`ZEFC_OBJECT_DISPATCH`): guarded IC, `isa_->slots[sel]`, flat `isa_[sel]` + instance fix-up on grow, or sticky site callee | Optional CHA unguarded; text/reloc sel/callee |
 | **Selector immediates** | Keep `sel` out of a per-send global/GOT load | **Closed-world** `ZEFC_SEL_*` literals; dynamic names use `ZEFC_SITE` cells | Reloc / text-imm patch for late names under Fil-C W^X |
 | **Immediate values** | Int/Double ops without heap + vtable | NaN-box Double; low-bit Int32; `ZEFC_SEND*` short-circuits | Keep; extend bitops/cmp short-circuits as benches need |
 | **Field IC** | Accessible get/set is most of nbody/splay traffic | `ZEFC_IC_GET/SET(obj, sel, Type, member)`: miss primes site; **steady-state unguarded typed member load/store** (Zef UnguardedAccessCache-style). `ZEFC_IC_*_OFFSET` for polymorphic sites | Keep |
 | **Fil-C++** | Memory safety + GC for runtime and generated code | Both Zef and ZefC Fil-C builds are the fair comparison; g++ is a separate baseline | Same. Fil-C allows in-bounds field loads; it does **not** make an extra indirect call free |
 
-**Fairness:** optimize shared runtime and transpile-shaped emission (above). Do not hand-specialize one bench with raw `body->field` unless CHA/compiler would. Typed field IC is the general emit shape when the site’s class layout is known; method IC is the default emit shape for `ZEFC_SEND*` (guard + cached callee). `send(recv, sel, arg)` with a *varying* selector bypasses IC.
+**Fairness:** optimize shared runtime and transpile-shaped emission (above). Do not hand-specialize one bench with raw `body->field` unless CHA/compiler would. Typed field IC is the general emit shape when the site’s class layout is known. `send(recv, sel, arg)` with a *varying* selector always uses the table helper (`zefc_method_at`).
 
-**Method IC vs pure vtable (perf switch):** Meson option `method_dispatch` (`ic` default, or `vtable`) sets `-DZEFC_METHOD_IC=1|0`. Only object `ZEFC_SEND*` changes; Double/Int32 short-circuits and field IC stay. Use two build dirs (e.g. `build-filc-o2` vs `build-filc-o2-vtable`) at the same `buildtype=debugoptimized` when comparing.
+**Object dispatch (perf switch):** Meson `-Dobject_dispatch=ic|slots|flat|site` sets `ZEFC_OBJECT_DISPATCH` (see `object_dispatch.hpp` / `dispatch.hpp`). Call sites stay `ZEFC_SEND*`; only the object path changes. Immediates and field IC unchanged. Use separate build dirs at the same `buildtype=debugoptimized` when comparing.
+
+| Value | Hot path | Notes |
+|-------|----------|--------|
+| `ic` (default) | guard `isa_` + cached callee | Zef-style method IC |
+| `slots` | `isa_->slots[sel]` | `VTable*` handle (no IC) |
+| `flat` | `isa_[sel]` | Plan A: `IsaPtr = zefc_method*`; grow rewrites live `isa_` |
+| `site` | sticky `CallSite.callee` | Plan B: fill on first use (optional `call_site_bind` at load); **no isa_ guard** — wrong under polymorphism (e.g. richards). Prefer `ic`/`slots`/`flat` for full smoke |
 
 ### ScriptBench wall times (matched `-O2`)
 
 Machine: WSL2 x86_64, 2026-07-30. All ZefC/Zef builds `debugoptimized` (`optimization=2`). Fil-C++ 0.678; ZefC g++ = system g++. Five warm runs; table shows approximate medians. Field IC on in all ZefC columns. Zef has no g++ build (Fil-C only).
 
-| Bench | ZefC Fil-C ic | ZefC Fil-C vtable | ZefC g++ ic | ZefC g++ vtable | Zef Fil-C |
-|-------|---------------|-------------------|-------------|-----------------|-----------|
+| Bench | ZefC Fil-C ic | ZefC Fil-C slots | ZefC g++ ic | ZefC g++ slots | Zef Fil-C |
+|-------|---------------|------------------|-------------|----------------|-----------|
 | nbody | ~0.08s | ~0.07s | ~0.01s | ~0.01s | ~0.18s |
 | richards | ~0.05s | ~0.05s | ~0.00s | ~0.00s | ~0.20s |
 | splay | ~1.4s | ~1.4s | ~0.29s | ~0.32s | ~3.5s |
 
-**Takeaways:** method IC vs pure vtable is noise. Fil-C vs g++ on the same ZefC code is ~5–10× (safety/check tax). ZefC Fil-C beating Zef Fil-C is mostly AOT C++ vs interpretation, not vtable-vs-IC.
+*(Table from 2026-07-30 used then-named `vtable` = today’s `slots`. Re-baseline `flat` / `site` when comparing those modes.)*
+
+**Takeaways:** method IC vs pure slots was noise at `-O2`. Fil-C vs g++ on the same ZefC code is ~5–10× (safety/check tax). ZefC Fil-C beating Zef Fil-C is mostly AOT C++ vs interpretation, not vtable-vs-IC.
+
 
 ScriptBench smoke (`nbody`, `splay`, `richards`) exercises this stack; see [test/smoke/README.md](../test/smoke/README.md).
 
@@ -151,4 +161,4 @@ Instruction-count verification under Fil-C++ is a follow-on check, not a gate fo
 - **First milestone module load:** explicit `module_register` / `module_load` without a separate `.so`.
 - **Closed-world skip:** not implemented; sites still go through the patch path.
 
-Next toward the ideal hot path: reloc/text-imm patch for selectors **not** in the closed-world set; optionally flatten `isa_` back to `zefc_method*` with a non-moving slot allocator.
+Next toward the ideal hot path: reloc/text-imm patch for selectors **not** in the closed-world set; non-moving slot arena for `flat` (fewer instance fix-ups); load-time `call_site_bind` coverage for monomorphic `site` sends.

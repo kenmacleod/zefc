@@ -19,7 +19,7 @@ namespace zefc {
 
 struct FieldSite {
   int selector; // 0 = uninitialized
-  VTable* guard; // nullptr = empty / miss
+  IsaPtr guard; // nullptr = empty / miss (primed marker for typed hits)
   std::intptr_t offset; // for offset fallback; unused on typed hit
 };
 
@@ -58,7 +58,7 @@ id zefc_ic_get_field_miss(id obj, FieldSite* site)
     return zefc_ic_get_miss_send(obj, site);
   }
   std::intptr_t off = 0;
-  if (!field_lookup_get(obj->isa_, site->selector, &off)) {
+  if (!field_lookup_get(zefc_vtable_of(obj), site->selector, &off)) {
     return zefc_ic_get_miss_send(obj, site);
   }
   site->guard = obj->isa_;
@@ -73,7 +73,7 @@ id zefc_ic_set_field_miss(id obj, FieldSite* site, id value)
     return zefc_ic_set_miss_send(obj, site, value);
   }
   std::intptr_t off = 0;
-  if (!field_lookup_set(obj->isa_, site->selector, &off)) {
+  if (!field_lookup_set(zefc_vtable_of(obj), site->selector, &off)) {
     return zefc_ic_set_miss_send(obj, site, value);
   }
   site->guard = obj->isa_;

@@ -19,15 +19,17 @@ endif
 
 runtime_inc = include_directories('runtime/include')
 
-# Compile-time method dispatch: -DZEFC_METHOD_IC=1 (ic) or 0 (pure vtable).
-method_dispatch = get_option('method_dispatch')
-if method_dispatch == 'ic'
-  zefc_method_ic = 1
-else
-  zefc_method_ic = 0
-endif
-zefc_cpp_args = ['-DZEFC_METHOD_IC=@0@'.format(zefc_method_ic)]
-message('method_dispatch=@0@ (ZEFC_METHOD_IC=@1@)'.format(method_dispatch, zefc_method_ic))
+# Compile-time object dispatch: -DZEFC_OBJECT_DISPATCH=N (see object_dispatch.hpp).
+object_dispatch = get_option('object_dispatch')
+od_map = {
+  'slots': 0,
+  'ic': 1,
+  'flat': 2,
+  'site': 3,
+}
+zefc_od = od_map[object_dispatch]
+zefc_cpp_args = ['-DZEFC_OBJECT_DISPATCH=@0@'.format(zefc_od)]
+message('object_dispatch=@0@ (ZEFC_OBJECT_DISPATCH=@1@)'.format(object_dispatch, zefc_od))
 
 subdir('runtime')
 subdir('test/smoke')

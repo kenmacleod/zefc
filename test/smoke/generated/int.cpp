@@ -15,7 +15,7 @@ namespace zefc {
 namespace runtime {
 
 struct Int_ {
-  VTable* isa_;
+  IsaPtr isa_;
   long long value;
 };
 
@@ -47,7 +47,7 @@ static Int
 Int__heap_from_i64(long long value)
 {
   Int n = alloc<Int_>();
-  n->isa_ = Int_vtable;
+  zefc_set_isa(n, Int_vtable);
   n->value = value;
   return n;
 }

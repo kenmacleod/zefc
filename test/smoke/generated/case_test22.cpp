@@ -16,7 +16,7 @@ namespace smoke {
 namespace {
 
 struct Scope_ {
-  VTable* isa_;
+  IsaPtr isa_;
   id x_;
 };
 
@@ -58,7 +58,7 @@ Scope__new()
     ready = true;
   }
   Scope_* s = alloc<Scope_>();
-  s->isa_ = Scope_vtable;
+  zefc_set_isa(s, Scope_vtable);
   s->x_ = Int__from_i64(0);
   return as_id(s);
 }

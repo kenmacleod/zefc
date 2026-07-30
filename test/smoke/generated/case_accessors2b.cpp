@@ -15,7 +15,7 @@ namespace smoke {
 namespace {
 
 struct Foo_ {
-  VTable* isa_;
+  IsaPtr isa_;
   id a;
   id b;
 };
@@ -103,7 +103,7 @@ Foo__new()
     ready = true;
   }
   Foo_* o = alloc<Foo_>();
-  o->isa_ = Foo_vtable;
+  zefc_set_isa(o, Foo_vtable);
   o->a = Int__from_i64(1);
   o->b = Int__from_i64(2);
   return as_id(o);
@@ -117,8 +117,9 @@ smoke_accessors2b()
   id o = Foo__new();
   println(send(Foo__new(), slot_thingy, o));
   println(send(Foo__new(), slot_stuff, o));
-  (void)body<Foo_>(Foo__new())->isa_->slots[slot_whatever](
-      Foo__new(), slot_whatever, o, Int__from_i64(42));
+  id tmp = Foo__new();
+  (void)zefc_method_at(tmp, slot_whatever)(
+      tmp, slot_whatever, o, Int__from_i64(42));
   println(send(Foo__new(), slot_stuff, o));
 }
 

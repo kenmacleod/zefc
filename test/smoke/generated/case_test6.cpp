@@ -17,13 +17,13 @@ namespace smoke {
 namespace {
 
 struct Foo_ {
-  VTable* isa_;
+  IsaPtr isa_;
   id thingy;
   id stuff;
 };
 
 struct Bar_ {
-  VTable* isa_;
+  IsaPtr isa_;
   id thingy;
   id stuff;
   id whatever;
@@ -160,7 +160,7 @@ Bar__new(id crap)
   }
 
   Bar_* b = alloc<Bar_>();
-  b->isa_ = Bar_vtable;
+  zefc_set_isa(b, Bar_vtable);
   // Bar(crap): whatever = crap.toString; blah = crap + 5; super(crap + 10)
   b->whatever = ZEFC_SEND0(crap, ZEFC_SITE("toString_o"));
   b->blah = send(crap, ZEFC_SITE("add_o"), Int__from_i64(5));

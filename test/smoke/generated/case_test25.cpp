@@ -15,13 +15,13 @@ namespace smoke {
 namespace {
 
 struct Closure1_ {
-  VTable* isa_;
+  IsaPtr isa_;
   long long a;
   long long b;
 };
 
 struct Closure0_ {
-  VTable* isa_;
+  IsaPtr isa_;
   long long a;
 };
 
@@ -52,7 +52,7 @@ make_closure1(long long a, long long b)
     ready = true;
   }
   Closure1_* c = alloc<Closure1_>();
-  c->isa_ = Closure1_vtable;
+  zefc_set_isa(c, Closure1_vtable);
   c->a = a;
   c->b = b;
   return as_id(c);
@@ -82,7 +82,7 @@ make_closure0(long long a)
     ready = true;
   }
   Closure0_* c = alloc<Closure0_>();
-  c->isa_ = Closure0_vtable;
+  zefc_set_isa(c, Closure0_vtable);
   c->a = a;
   return as_id(c);
 }

@@ -16,7 +16,7 @@ namespace smoke {
 namespace {
 
 struct Thunk_ {
-  VTable* isa_;
+  IsaPtr isa_;
 };
 
 static VTable* Thunk_vtable = nullptr;
@@ -44,7 +44,7 @@ make_thunk()
     ready = true;
   }
   Thunk_* t = alloc<Thunk_>();
-  t->isa_ = Thunk_vtable;
+  zefc_set_isa(t, Thunk_vtable);
   return as_id(t);
 }
 

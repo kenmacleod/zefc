@@ -13,7 +13,7 @@ namespace smoke {
 namespace {
 
 struct Class_ {
-  VTable* isa_;
+  IsaPtr isa_;
   id next;
 };
 
@@ -54,7 +54,7 @@ ensure()
     vtable_set(vtables[n], slot_call, Chain__call_o);
   }
   for (int n = 4; n >= 0; --n) {
-    nodes[n].isa_ = vtables[n];
+    zefc_set_isa(&nodes[n], vtables[n]);
     nodes[n].next = (n == 4) ? null_id() : as_id(&nodes[n + 1]);
   }
 }

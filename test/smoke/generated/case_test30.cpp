@@ -15,7 +15,7 @@ namespace smoke {
 namespace {
 
 struct Foo_ {
-  VTable* isa_;
+  IsaPtr isa_;
 };
 
 static VTable* Foo_vtable = nullptr;
@@ -45,7 +45,7 @@ Foo__new()
     ready = true;
   }
   Foo_* o = alloc<Foo_>();
-  o->isa_ = Foo_vtable;
+  zefc_set_isa(o, Foo_vtable);
   return as_id(o);
 }
 

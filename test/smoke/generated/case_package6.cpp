@@ -13,7 +13,7 @@ namespace smoke {
 namespace {
 
 struct Thingy_ {
-  VTable* isa_;
+  IsaPtr isa_;
   id x;
 };
 
@@ -38,7 +38,7 @@ Thingy__new(id x)
     ready = true;
   }
   Thingy_* t = alloc<Thingy_>();
-  t->isa_ = Thingy_vtable;
+  zefc_set_isa(t, Thingy_vtable);
   t->x = x;
   return as_id(t);
 }

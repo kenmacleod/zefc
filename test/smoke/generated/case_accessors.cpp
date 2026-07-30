@@ -15,13 +15,13 @@ namespace smoke {
 namespace {
 
 struct Foo_ {
-  VTable* isa_;
+  IsaPtr isa_;
   id a;
   id b;
 };
 
 struct FooClass_ {
-  VTable* isa_;
+  IsaPtr isa_;
   id c;
   id d;
 };
@@ -88,7 +88,7 @@ ensure()
   field_register_get(FooClass_vtable, slot_c, offsetof(FooClass_, c));
   field_register_get(FooClass_vtable, slot_d, offsetof(FooClass_, d));
   field_register_set(FooClass_vtable, slot_set_d, offsetof(FooClass_, d));
-  g_FooClass.isa_ = FooClass_vtable;
+  zefc_set_isa(&g_FooClass, FooClass_vtable);
   g_FooClass.c = Int__from_i64(3);
   g_FooClass.d = Int__from_i64(4);
 }
@@ -98,7 +98,7 @@ Foo__new()
 {
   ensure();
   Foo_* o = alloc<Foo_>();
-  o->isa_ = Foo_vtable;
+  zefc_set_isa(o, Foo_vtable);
   o->a = Int__from_i64(1);
   o->b = Int__from_i64(2);
   return as_id(o);

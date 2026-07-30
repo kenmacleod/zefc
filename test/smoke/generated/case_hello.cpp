@@ -15,7 +15,7 @@ namespace smoke {
 namespace {
 
 struct HelloFoo_ {
-  VTable* isa_;
+  IsaPtr isa_;
   id x;
 };
 
@@ -55,7 +55,7 @@ HelloFoo__new_o(id, int selector, id inX)
 {
   (void)selector;
   HelloFoo self = alloc<HelloFoo_>();
-  self->isa_ = HelloFoo_vtable;
+  zefc_set_isa(self, HelloFoo_vtable);
   self->x = inX;
   return as_id(self);
 }

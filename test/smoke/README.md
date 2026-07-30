@@ -12,7 +12,7 @@ End-to-end checks against Zef goldens from the sibling [Zef](https://github.com/
 
 **Bench fairness:** Optimize shared runtime and transpile-shaped emission (immediates, `ZEFC_SEL_*`, field IC, fixed-arity methods). Do not hand-specialize a single case with direct struct access unless the compiler would (CHA); field IC is the general Zef-like mechanism. Full stack (vtable ≠ Zef alone): [docs/dispatch-and-loading.md](../../docs/dispatch-and-loading.md) § Performance model.
 
-**Dispatch ABI:** Known names use closed-world `ZEFC_SEL_*` integer literals; late/dynamic names use `ZEFC_SITE("…")` cells. `ZEFC_SEND*` defaults to per-site **method IC** (`-Dmethod_dispatch=ic`); use `vtable` for pure `isa_->slots[sel]` every send. Fields use typed **field IC** (unchanged by that switch). See [docs/dispatch-and-loading.md](../../docs/dispatch-and-loading.md).
+**Dispatch ABI:** Known names use closed-world `ZEFC_SEL_*` integer literals; late/dynamic names use `ZEFC_SITE("…")` cells. `ZEFC_SEND*` object path is selected by `-Dobject_dispatch=ic|slots|flat|site` (default `ic`). Full smoke is green on `ic`/`slots`/`flat`; `site` (unguarded sticky callee) is for monomorphic A/B and can fail polymorphic cases (`richards`, `staticcall7`). Fields use typed **field IC**. See [docs/dispatch-and-loading.md](../../docs/dispatch-and-loading.md).
 
 ## Fidelity
 

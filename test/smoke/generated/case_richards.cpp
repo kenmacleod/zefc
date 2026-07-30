@@ -146,7 +146,7 @@ static VTable* Handler_vt = nullptr;
 static VTable* Packet_vt = nullptr;
 
 struct Scheduler_ {
-  VTable* isa_;
+  IsaPtr isa_;
   id queueCount;
   id holdCount;
   id blocks;
@@ -156,7 +156,7 @@ struct Scheduler_ {
 };
 
 struct TCB_ {
-  VTable* isa_;
+  IsaPtr isa_;
   id link;
   id tid;
   id priority;
@@ -166,34 +166,34 @@ struct TCB_ {
 };
 
 struct Idle_ {
-  VTable* isa_;
+  IsaPtr isa_;
   id scheduler;
   id v1;
   id count;
 };
 
 struct Device_ {
-  VTable* isa_;
+  IsaPtr isa_;
   id scheduler;
   id v1;
 };
 
 struct Worker_ {
-  VTable* isa_;
+  IsaPtr isa_;
   id scheduler;
   id v1;
   id v2;
 };
 
 struct Handler_ {
-  VTable* isa_;
+  IsaPtr isa_;
   id scheduler;
   id v1;
   id v2;
 };
 
 struct Packet_ {
-  VTable* isa_;
+  IsaPtr isa_;
   id link;
   id pid;
   id kind;
@@ -612,7 +612,7 @@ Scheduler__new()
 {
   ensure_runtime();
   Scheduler_* o = alloc<Scheduler_>();
-  o->isa_ = Scheduler_vt;
+  zefc_set_isa(o, Scheduler_vt);
   o->queueCount = I(0);
   o->holdCount = I(0);
   o->blocks = Array__with_size(kNUMBER_OF_IDS);
@@ -627,7 +627,7 @@ TCB__new(id inLink, id inId, id inPriority, id inQueue, id inTask)
 {
   ensure_runtime();
   TCB_* o = alloc<TCB_>();
-  o->isa_ = TCB_vt;
+  zefc_set_isa(o, TCB_vt);
   o->link = inLink;
   o->tid = inId;
   o->priority = inPriority;
@@ -642,7 +642,7 @@ Idle__new(id sch, id v1, id count)
 {
   ensure_runtime();
   Idle_* o = alloc<Idle_>();
-  o->isa_ = Idle_vt;
+  zefc_set_isa(o, Idle_vt);
   o->scheduler = sch;
   o->v1 = v1;
   o->count = count;
@@ -654,7 +654,7 @@ Device__new(id sch)
 {
   ensure_runtime();
   Device_* o = alloc<Device_>();
-  o->isa_ = Device_vt;
+  zefc_set_isa(o, Device_vt);
   o->scheduler = sch;
   o->v1 = null_id();
   return as_id(o);
@@ -665,7 +665,7 @@ Worker__new(id sch, id v1, id v2)
 {
   ensure_runtime();
   Worker_* o = alloc<Worker_>();
-  o->isa_ = Worker_vt;
+  zefc_set_isa(o, Worker_vt);
   o->scheduler = sch;
   o->v1 = v1;
   o->v2 = v2;
@@ -677,7 +677,7 @@ Handler__new(id sch)
 {
   ensure_runtime();
   Handler_* o = alloc<Handler_>();
-  o->isa_ = Handler_vt;
+  zefc_set_isa(o, Handler_vt);
   o->scheduler = sch;
   o->v1 = null_id();
   o->v2 = null_id();
@@ -689,7 +689,7 @@ Packet__new(id inLink, id inId, id inKind)
 {
   ensure_runtime();
   Packet_* o = alloc<Packet_>();
-  o->isa_ = Packet_vt;
+  zefc_set_isa(o, Packet_vt);
   o->link = falsy(inLink) ? null_id() : inLink;
   o->pid = inId;
   o->kind = inKind;

@@ -15,7 +15,7 @@ namespace smoke {
 namespace {
 
 struct Closure_ {
-  VTable* isa_;
+  IsaPtr isa_;
   long long captured;
 };
 
@@ -45,7 +45,7 @@ make_add_closure(long long captured)
     vtable_ready = true;
   }
   Closure_* c = alloc<Closure_>();
-  c->isa_ = Closure_vtable;
+  zefc_set_isa(c, Closure_vtable);
   c->captured = captured;
   return as_id(c);
 }

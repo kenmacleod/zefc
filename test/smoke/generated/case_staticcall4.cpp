@@ -13,12 +13,12 @@ namespace smoke {
 namespace {
 
 struct Pkg_ {
-  VTable* isa_;
+  IsaPtr isa_;
   id Bar;
 };
 
 struct BarClass_ {
-  VTable* isa_;
+  IsaPtr isa_;
 };
 
 static VTable* Pkg_vtable = nullptr;
@@ -59,8 +59,8 @@ ensure()
     }
   vtable_set(Bar_vtable, slot_call, Bar__call_o);
   vtable_set(Pkg_vtable, slot_Bar, Pkg__Bar_o);
-  g_Bar.isa_ = Bar_vtable;
-  g_foo.isa_ = Pkg_vtable;
+  zefc_set_isa(&g_Bar, Bar_vtable);
+  zefc_set_isa(&g_foo, Pkg_vtable);
   g_foo.Bar = as_id(&g_Bar);
 }
 

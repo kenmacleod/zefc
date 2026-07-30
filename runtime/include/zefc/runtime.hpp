@@ -1,5 +1,7 @@
 #pragma once
 
+#include "zefc/object_dispatch.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -10,14 +12,22 @@ namespace zefc {
 
 using zefc_method = struct id_* (*)(struct id_* self, int selector, ...);
 
-// Stable vtable handle: slots[] may grow; the VTable* identity does not move.
+// Class dispatch table. slots[] may grow; VTable* identity is stable.
 struct VTable {
   zefc_method* slots;
   int capacity;
 };
 
+#if ZEFC_OBJECT_DISPATCH == ZEFC_OD_FLAT
+// Plan A: object points at the method array (Orchard-style isa_[sel]).
+using IsaPtr = zefc_method*;
+#else
+// Handle: object points at VTable; send uses isa_->slots[sel].
+using IsaPtr = VTable*;
+#endif
+
 struct id_ {
-  VTable* isa_;
+  IsaPtr isa_;
 };
 
 using id = id_*;
@@ -71,22 +81,17 @@ id doesNotUnderstand(id self, int selector, ...);
 
 // --- Selector registry (append-only) ---
 int selector_intern(const char* mangled_name);
-// Bind mangled_name to a fixed ID (closed-world immediates). Call before conflicting interns.
 void selector_reserve(const char* mangled_name, int id);
 int selector_count(); // highest assigned ID + 1 (0 unused)
 
-// --- Call-site patch cells ---
-// Register a site cell to receive the interned ID for mangled_name at next patch.
+// --- Call-site patch cells (selector IDs) ---
 void selector_site_register(int* cell, const char* mangled_name);
-// Intern all pending site names, grow vtables, write IDs into cells, clear pending.
 void selector_sites_patch();
-
-// Compat: write a single cell (also used during gradual migration).
 void selector_patch(int* slot, int selector);
 
 // --- Growable vtables ---
 VTable* vtable_create();
-void vtable_register(VTable* vt); // participate in growth
+void vtable_register(VTable* vt);
 void vtable_set(VTable* vt, int selector, zefc_method method);
 void vtables_ensure_capacity(int min_capacity);
 
@@ -96,11 +101,27 @@ void vtable_set(VTable* vt, int selector, Fn method)
   vtable_set(vt, selector, reinterpret_cast<zefc_method>(method));
 }
 
+// Map object isa_ ↔ VTable* / method slot (layout-independent helpers).
+VTable* zefc_vtable_of(id obj);
+zefc_method zefc_method_at(id obj, int selector);
+void zefc_set_isa(id obj, VTable* vt);
+
+template<typename T>
+inline void
+zefc_set_isa(T* obj, VTable* vt)
+{
+  zefc_set_isa(as_id(obj), vt);
+}
+
+#if ZEFC_OBJECT_DISPATCH == ZEFC_OD_FLAT
+// Live objects whose isa_ must be rewritten when vt->slots relocates.
+void zefc_object_register(id obj, VTable* vt);
+#endif
+
 void package_register(const char* name);
 
 id null_id();
 
-// Lower priority number runs earlier (101 before 102).
 #define ZEFC_MODULE_CONSTRUCTOR(priority, fn) \
   static void fn(); \
   __attribute__((constructor(priority))) static void ZEFC_ANONYMIZE(zefc_ctor_, __LINE__)(void) \

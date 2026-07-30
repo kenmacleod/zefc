@@ -16,20 +16,20 @@ namespace smoke {
 namespace {
 
 struct Foo_ {
-  VTable* isa_;
+  IsaPtr isa_;
   id x;
   id y;
 };
 
 struct InnerClosure_ {
-  VTable* isa_;
+  IsaPtr isa_;
   id x;
   id y;
   id z;
 };
 
 struct Bar_ {
-  VTable* isa_;
+  IsaPtr isa_;
   id x;
   id y;
   id z;
@@ -74,7 +74,7 @@ Bar__new(id x, id y, id z, id w, id a, id b)
     ready = true;
   }
   Bar_* o = alloc<Bar_>();
-  o->isa_ = Bar_vtable;
+  zefc_set_isa(o, Bar_vtable);
   o->x = x;
   o->y = y;
   o->z = z;
@@ -113,7 +113,7 @@ make_inner(id x, id y, id z)
     ready = true;
   }
   InnerClosure_* c = alloc<InnerClosure_>();
-  c->isa_ = InnerClosure_vtable;
+  zefc_set_isa(c, InnerClosure_vtable);
   c->x = x;
   c->y = y;
   c->z = z;
@@ -147,7 +147,7 @@ Foo__new(id inX, id inY)
     ready = true;
   }
   Foo_* f = alloc<Foo_>();
-  f->isa_ = Foo_vtable;
+  zefc_set_isa(f, Foo_vtable);
   f->x = inX;
   f->y = inY;
   return as_id(f);
@@ -160,7 +160,7 @@ smoke_test9()
 {
   id foo = Foo__new(Int__from_i64(1), Int__from_i64(2));
   id inner = send(foo, slot_stuff, Int__from_i64(3));
-  id bar = body<InnerClosure_>(inner)->isa_->slots[slot_call3](
+  id bar = zefc_method_at(inner, slot_call3)(
       inner, slot_call3, Int__from_i64(4), Int__from_i64(5), Int__from_i64(6));
   println(ZEFC_SEND0(bar, slot_thingy));
 }

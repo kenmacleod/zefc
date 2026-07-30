@@ -13,7 +13,7 @@ namespace smoke {
 namespace {
 
 struct Class_ {
-  VTable* isa_;
+  IsaPtr isa_;
   id nested_Bar;
 };
 
@@ -55,9 +55,9 @@ ensure()
     }
   vtable_set(Bar_vtable, slot_call, Bar__call_o);
   vtable_set(Foo_vtable, slot_Bar, Foo__Bar_o);
-  g_Bar.isa_ = Bar_vtable;
+  zefc_set_isa(&g_Bar, Bar_vtable);
   g_Bar.nested_Bar = null_id();
-  g_Foo.isa_ = Foo_vtable;
+  zefc_set_isa(&g_Foo, Foo_vtable);
   g_Foo.nested_Bar = as_id(&g_Bar);
 }
 

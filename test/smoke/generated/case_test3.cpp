@@ -17,7 +17,7 @@ namespace smoke {
 namespace {
 
 struct TupleFoo_ {
-  VTable* isa_;
+  IsaPtr isa_;
   id x;
   id y;
   id z;
@@ -61,7 +61,7 @@ TupleFoo__new_ooo(id, int selector, id x, id y, id z)
 {
   (void)selector;
   TupleFoo_* self = alloc<TupleFoo_>();
-  self->isa_ = TupleFoo_vtable;
+  zefc_set_isa(self, TupleFoo_vtable);
   self->x = x;
   self->y = y;
   self->z = z;

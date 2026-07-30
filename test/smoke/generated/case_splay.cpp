@@ -79,19 +79,19 @@ static VTable* Tree_vtable = nullptr;
 static VTable* PushKey_vtable = nullptr;
 
 struct Leaf_ {
-  VTable* isa_;
+  IsaPtr isa_;
   id array;
   id string;
 };
 
 struct Inner_ {
-  VTable* isa_;
+  IsaPtr isa_;
   id left;
   id right;
 };
 
 struct Node_ {
-  VTable* isa_;
+  IsaPtr isa_;
   id key;
   id value;
   id left;
@@ -99,12 +99,12 @@ struct Node_ {
 };
 
 struct Tree_ {
-  VTable* isa_;
+  IsaPtr isa_;
   id root;
 };
 
 struct PushKey_ {
-  VTable* isa_;
+  IsaPtr isa_;
   id result;
 };
 
@@ -261,7 +261,7 @@ Leaf__new(id array, id string)
 {
   ensure_runtime();
   Leaf_* o = alloc<Leaf_>();
-  o->isa_ = Leaf_vtable;
+  zefc_set_isa(o, Leaf_vtable);
   o->array = array;
   o->string = string;
   return as_id(o);
@@ -272,7 +272,7 @@ Inner__new(id left, id right)
 {
   ensure_runtime();
   Inner_* o = alloc<Inner_>();
-  o->isa_ = Inner_vtable;
+  zefc_set_isa(o, Inner_vtable);
   o->left = left;
   o->right = right;
   return as_id(o);
@@ -283,7 +283,7 @@ Node__new(id key, id value)
 {
   ensure_runtime();
   Node_* o = alloc<Node_>();
-  o->isa_ = Node_vtable;
+  zefc_set_isa(o, Node_vtable);
   o->key = key;
   o->value = value;
   o->left = null_id();
@@ -296,7 +296,7 @@ Tree__new()
 {
   ensure_runtime();
   Tree_* o = alloc<Tree_>();
-  o->isa_ = Tree_vtable;
+  zefc_set_isa(o, Tree_vtable);
   o->root = null_id();
   return as_id(o);
 }
@@ -306,7 +306,7 @@ make_push_key(id result)
 {
   ensure_runtime();
   PushKey_* o = alloc<PushKey_>();
-  o->isa_ = PushKey_vtable;
+  zefc_set_isa(o, PushKey_vtable);
   o->result = result;
   return as_id(o);
 }

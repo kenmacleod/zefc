@@ -16,7 +16,7 @@ namespace zefc {
 namespace runtime {
 
 struct Array_ {
-  VTable* isa_;
+  IsaPtr isa_;
   std::vector<id> elems;
 };
 
@@ -94,7 +94,7 @@ static id
 Array__from_ints_impl(std::initializer_list<long long> values)
 {
   Array_* arr = alloc<Array_>();
-  arr->isa_ = Array_vtable;
+  zefc_set_isa(arr, Array_vtable);
   for (long long v : values) {
     arr->elems.push_back(Int__from_i64(v));
   }
@@ -105,7 +105,7 @@ static id
 Array__new_impl()
 {
   Array_* arr = alloc<Array_>();
-  arr->isa_ = Array_vtable;
+  zefc_set_isa(arr, Array_vtable);
   return as_id(arr);
 }
 
@@ -113,7 +113,7 @@ static id
 Array__with_size_impl(int n)
 {
   Array_* arr = alloc<Array_>();
-  arr->isa_ = Array_vtable;
+  zefc_set_isa(arr, Array_vtable);
   arr->elems.assign(static_cast<size_t>(n), null_id());
   return as_id(arr);
 }
