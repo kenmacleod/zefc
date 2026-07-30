@@ -148,6 +148,12 @@ Parser::parse_stmt()
     s.expr = std::move(e);
     return s;
   }
+  if (check(TokKind::KwReturn)) {
+    Stmt s;
+    s.kind = Stmt::Kind::Expr;
+    s.expr = parse_return();
+    return s;
+  }
   Stmt s;
   s.kind = Stmt::Kind::Expr;
   s.expr = parse_expr();
@@ -361,6 +367,12 @@ Parser::parse_block_item()
     item.expr = std::move(e);
     return item;
   }
+  if (check(TokKind::KwReturn)) {
+    BlockItem item;
+    item.kind = BlockItem::Kind::Expr;
+    item.expr = parse_return();
+    return item;
+  }
   BlockItem item;
   item.kind = BlockItem::Kind::Expr;
   item.expr = parse_expr();
@@ -390,6 +402,25 @@ Parser::parse_if()
   e->lhs = parse_expr();
   expect(TokKind::RParen, ")");
   e->body = parse_method_body();
+  if (check(TokKind::KwElse)) {
+    next();
+    e->else_body = parse_method_body();
+  }
+  return e;
+}
+
+ExprPtr
+Parser::parse_return()
+{
+  expect(TokKind::KwReturn, "return");
+  auto e = std::make_unique<Expr>();
+  e->kind = Expr::Kind::Return;
+  // `return` or `return expr` — newline ends a bare return.
+  if (check(TokKind::Eof) || check(TokKind::RBrace) || check(TokKind::Semicolon) ||
+      peek().after_newline) {
+    return e;
+  }
+  e->rhs = parse_expr();
   return e;
 }
 

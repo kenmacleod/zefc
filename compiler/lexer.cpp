@@ -119,10 +119,14 @@ Lexer::lex_one()
       t.kind = TokKind::KwWhile;
     } else if (id == "if") {
       t.kind = TokKind::KwIf;
+    } else if (id == "else") {
+      t.kind = TokKind::KwElse;
     } else if (id == "break") {
       t.kind = TokKind::KwBreak;
     } else if (id == "continue") {
       t.kind = TokKind::KwContinue;
+    } else if (id == "return") {
+      t.kind = TokKind::KwReturn;
     } else {
       t.kind = TokKind::Ident;
     }

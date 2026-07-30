@@ -20,8 +20,10 @@ enum class TokKind {
   KwStatic,
   KwWhile,
   KwIf,
+  KwElse,
   KwBreak,
   KwContinue,
+  KwReturn,
   // punct
   LBrace,
   RBrace,

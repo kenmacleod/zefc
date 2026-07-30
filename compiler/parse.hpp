@@ -37,6 +37,7 @@ private:
   ExprPtr parse_primary();
   ExprPtr parse_while();
   ExprPtr parse_if();
+  ExprPtr parse_return();
   std::vector<ExprPtr> parse_arg_list();
 };
 

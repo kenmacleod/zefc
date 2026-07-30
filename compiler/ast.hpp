@@ -32,6 +32,7 @@ struct Expr {
     If,
     Break,
     Continue,
+    Return,
   } kind;
 
   std::string text; // Ident / String / Number / Dot field / Binary op / Assign "+="
@@ -39,7 +40,8 @@ struct Expr {
   ExprPtr rhs;
   std::vector<ExprPtr> args;
   std::vector<std::string> params; // Lambda
-  std::vector<BlockItem> body;     // Lambda / While / If-then
+  std::vector<BlockItem> body;      // Lambda / While / If-then
+  std::vector<BlockItem> else_body; // If-else
 };
 
 struct Field {

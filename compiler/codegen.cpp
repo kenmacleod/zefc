@@ -83,6 +83,7 @@ struct ClassInfo {
 
 struct FuncInfo {
   const FuncDecl* decl = nullptr;
+  size_t arity = 0;
 };
 
 struct Ctx {
@@ -210,6 +211,20 @@ collect_free(const Expr& e, const std::unordered_set<std::string>& locals,
       } else if (item.expr) {
         collect_free(*item.expr, locals, env, captures);
       }
+    }
+    for (const BlockItem& item : e.else_body) {
+      if (item.kind == BlockItem::Kind::VarDecl) {
+        if (item.expr) {
+          collect_free(*item.expr, locals, env, captures);
+        }
+      } else if (item.expr) {
+        collect_free(*item.expr, locals, env, captures);
+      }
+    }
+    break;
+  case Expr::Kind::Return:
+    if (e.rhs) {
+      collect_free(*e.rhs, locals, env, captures);
     }
     break;
   case Expr::Kind::Break:
@@ -361,6 +376,9 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
     if (is_field(ctx, e.text)) {
       const std::string& cls = ctx.current_class->decl->name;
       ctx.out << "  " << dst << " = body<" << cls << "_>(self)->" << e.text << ";\n";
+    } else if (ctx.functions.count(e.text) && ctx.functions[e.text].arity == 0) {
+      // Bare zero-arg function name → call (println(foo), property getters).
+      ctx.out << "  " << dst << " = fn_" << e.text << "();\n";
     } else {
       ctx.out << "  " << dst << " = " << e.text << ";\n";
     }
@@ -468,7 +486,15 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
     for (const BlockItem& item : e.body) {
       emit_block_item(ctx, item, nullptr);
     }
-    ctx.out << "  }\n";
+    ctx.out << "  }";
+    if (!e.else_body.empty()) {
+      ctx.out << " else {\n";
+      for (const BlockItem& item : e.else_body) {
+        emit_block_item(ctx, item, nullptr);
+      }
+      ctx.out << "  }";
+    }
+    ctx.out << "\n";
     ctx.out << "  " << dst << " = null_id();\n";
     return;
   }
@@ -480,6 +506,18 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
     ctx.out << "  continue;\n";
     ctx.out << "  " << dst << " = null_id();\n";
     return;
+  case Expr::Kind::Return: {
+    if (e.rhs) {
+      const std::string v = ctx.fresh("t");
+      ctx.out << "  id " << v << ";\n";
+      emit_expr(ctx, *e.rhs, v);
+      ctx.out << "  return " << v << ";\n";
+    } else {
+      ctx.out << "  return null_id();\n";
+    }
+    ctx.out << "  " << dst << " = null_id();\n";
+    return;
+  }
   case Expr::Kind::Unary: {
     if (e.text != "-") {
       throw std::runtime_error("unsupported unary op: " + e.text);
@@ -542,6 +580,9 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
       const std::string& cls = ctx.current_class->decl->name;
       ctx.out << "  body<" << cls << "_>(self)->" << name << " = " << rhs << ";\n";
       ctx.out << "  " << dst << " = " << rhs << ";\n";
+    } else if (ctx.functions.count("set_" + name)) {
+      // Top-level property: x = v → set_x(v)
+      ctx.out << "  " << dst << " = fn_set_" << name << "(" << rhs << ");\n";
     } else {
       ctx.out << "  " << name << " = " << rhs << ";\n";
       ctx.out << "  " << dst << " = " << rhs << ";\n";
@@ -615,6 +656,21 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
           ctx.out << "  " << callee << "(" << acc << ");\n";
         }
         ctx.out << "  " << dst << " = null_id();\n";
+        return;
+      }
+      if (callee == "String") {
+        if (arg_tmps.empty()) {
+          ctx.out << "  " << dst << " = String__from_utf8(\"\");\n";
+        } else {
+          ctx.out << "  " << dst << " = ZEFC_SEND0(" << arg_tmps[0] << ", ZEFC_SEL_toString_o);\n";
+          for (size_t i = 1; i < arg_tmps.size(); ++i) {
+            const std::string s = ctx.fresh("t");
+            ctx.out << "  id " << s << " = ZEFC_SEND0(" << arg_tmps[i]
+                    << ", ZEFC_SEL_toString_o);\n";
+            ctx.out << "  " << dst << " = ZEFC_SEND1(" << dst << ", ZEFC_SEL_add_o, " << s
+                    << ");\n";
+          }
+        }
         return;
       }
       if (ctx.classes.count(callee)) {
@@ -717,6 +773,7 @@ collect_classes(Ctx& ctx, const Program& program)
     if (s.kind == Stmt::Kind::Func) {
       FuncInfo fi;
       fi.decl = &s.func_decl;
+      fi.arity = s.func_decl.params.size();
       ctx.functions[s.func_decl.name] = fi;
       continue;
     }
