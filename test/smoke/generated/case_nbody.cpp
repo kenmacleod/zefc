@@ -1,12 +1,9 @@
 // Generated from ScriptBench/nbody.zef (hand-maintained).
-// Structure: Body + Array + Double arith. Inheritance flattened to Body ctors.
-//
-// Field access: monomorphic lowering — known Body receiver uses direct struct
-// loads/stores (what a future compiler emits when the class is fixed). Get/set
-// methods stay on the vtable for the accessible ABI / polymorphic sends.
-// Double ops use ZEFC_SEL_* + immediate short-circuit.
-
-#include <cstdarg>
+// Structure: Body accessible fields + Array + Double arith via sends.
+// Inheritance flattened to Body ctors; loop indices are C++ ints.
+// Selectors are closed-world ZEFC_SEL_* literals (transpile-shaped).
+// Field get/set go through sends — same shape a general transpiler emits
+// without CHA; monomorphic struct access is a separate future compiler pass.
 
 #include "zefc/array_api.hpp"
 #include "zefc/dispatch.hpp"
@@ -39,8 +36,6 @@ struct Body_ {
 
 static VTable* Body_vtable = nullptr;
 
-// --- Accessible ABI (vtable); hot path uses BODY_* below instead ---
-
 static id Body__x_o(id self, int, ...) { return body<Body_>(self)->x; }
 static id Body__y_o(id self, int, ...) { return body<Body_>(self)->y; }
 static id Body__z_o(id self, int, ...) { return body<Body_>(self)->z; }
@@ -50,80 +45,52 @@ static id Body__vz_o(id self, int, ...) { return body<Body_>(self)->vz; }
 static id Body__mass_o(id self, int, ...) { return body<Body_>(self)->mass; }
 
 static id
-Body__set_field(id /*self*/, id* slot, id v)
+Body__set_x_o(id self, int selector, id v)
 {
-  *slot = v;
+  (void)selector;
+  body<Body_>(self)->x = v;
   return null_id();
 }
 
 static id
-Body__set_x_o(id self, int selector, ...)
+Body__set_y_o(id self, int selector, id v)
 {
   (void)selector;
-  std::va_list ap;
-  va_start(ap, selector);
-  id v = va_arg(ap, id);
-  va_end(ap);
-  return Body__set_field(self, &body<Body_>(self)->x, v);
+  body<Body_>(self)->y = v;
+  return null_id();
 }
 
 static id
-Body__set_y_o(id self, int selector, ...)
+Body__set_z_o(id self, int selector, id v)
 {
   (void)selector;
-  std::va_list ap;
-  va_start(ap, selector);
-  id v = va_arg(ap, id);
-  va_end(ap);
-  return Body__set_field(self, &body<Body_>(self)->y, v);
+  body<Body_>(self)->z = v;
+  return null_id();
 }
 
 static id
-Body__set_z_o(id self, int selector, ...)
+Body__set_vx_o(id self, int selector, id v)
 {
   (void)selector;
-  std::va_list ap;
-  va_start(ap, selector);
-  id v = va_arg(ap, id);
-  va_end(ap);
-  return Body__set_field(self, &body<Body_>(self)->z, v);
+  body<Body_>(self)->vx = v;
+  return null_id();
 }
 
 static id
-Body__set_vx_o(id self, int selector, ...)
+Body__set_vy_o(id self, int selector, id v)
 {
   (void)selector;
-  std::va_list ap;
-  va_start(ap, selector);
-  id v = va_arg(ap, id);
-  va_end(ap);
-  return Body__set_field(self, &body<Body_>(self)->vx, v);
+  body<Body_>(self)->vy = v;
+  return null_id();
 }
 
 static id
-Body__set_vy_o(id self, int selector, ...)
+Body__set_vz_o(id self, int selector, id v)
 {
   (void)selector;
-  std::va_list ap;
-  va_start(ap, selector);
-  id v = va_arg(ap, id);
-  va_end(ap);
-  return Body__set_field(self, &body<Body_>(self)->vy, v);
+  body<Body_>(self)->vz = v;
+  return null_id();
 }
-
-static id
-Body__set_vz_o(id self, int selector, ...)
-{
-  (void)selector;
-  std::va_list ap;
-  va_start(ap, selector);
-  id v = va_arg(ap, id);
-  va_end(ap);
-  return Body__set_field(self, &body<Body_>(self)->vz, v);
-}
-
-// Monomorphic field access for a known Body* receiver.
-static inline Body_* as_body(id obj) { return body<Body_>(obj); }
 
 static void
 ensure_body()
@@ -260,17 +227,17 @@ offsetMomentum(id bodies)
   id pz = Double__from_f64(0.);
   const int n = Array__size(bodies);
   for (int i = 0; i < n; ++i) {
-    Body_* b = as_body(Array__at(bodies, i));
-    id mass = b->mass;
-    px = dadd(px, dmul(b->vx, mass));
-    py = dadd(py, dmul(b->vy, mass));
-    pz = dadd(pz, dmul(b->vz, mass));
+    id b = Array__at(bodies, i);
+    id mass = ZEFC_SEND0(b, ZEFC_SEL_mass_o);
+    px = dadd(px, dmul(ZEFC_SEND0(b, ZEFC_SEL_vx_o), mass));
+    py = dadd(py, dmul(ZEFC_SEND0(b, ZEFC_SEL_vy_o), mass));
+    pz = dadd(pz, dmul(ZEFC_SEND0(b, ZEFC_SEL_vz_o), mass));
   }
-  Body_* sun = as_body(Array__at(bodies, 0));
+  id sun = Array__at(bodies, 0);
   id solar = Double__from_f64(kSOLAR_MASS);
-  sun->vx = ddiv(dsub(Double__from_f64(0.), px), solar);
-  sun->vy = ddiv(dsub(Double__from_f64(0.), py), solar);
-  sun->vz = ddiv(dsub(Double__from_f64(0.), pz), solar);
+  (void)ZEFC_SEND1(sun, ZEFC_SEL_set_vx_o, ddiv(dsub(Double__from_f64(0.), px), solar));
+  (void)ZEFC_SEND1(sun, ZEFC_SEL_set_vy_o, ddiv(dsub(Double__from_f64(0.), py), solar));
+  (void)ZEFC_SEND1(sun, ZEFC_SEL_set_vz_o, ddiv(dsub(Double__from_f64(0.), pz), solar));
 }
 
 static void
@@ -278,35 +245,41 @@ advance(id bodies, id dt)
 {
   const int n = Array__size(bodies);
   for (int i = 0; i < n; ++i) {
-    Body_* bodyi = as_body(Array__at(bodies, i));
-    id vxi = bodyi->vx;
-    id vyi = bodyi->vy;
-    id vzi = bodyi->vz;
+    id bodyi = Array__at(bodies, i);
+    id vxi = ZEFC_SEND0(bodyi, ZEFC_SEL_vx_o);
+    id vyi = ZEFC_SEND0(bodyi, ZEFC_SEL_vy_o);
+    id vzi = ZEFC_SEND0(bodyi, ZEFC_SEL_vz_o);
     for (int j = i + 1; j < n; ++j) {
-      Body_* bodyj = as_body(Array__at(bodies, j));
-      id dx = dsub(bodyi->x, bodyj->x);
-      id dy = dsub(bodyi->y, bodyj->y);
-      id dz = dsub(bodyi->z, bodyj->z);
+      id bodyj = Array__at(bodies, j);
+      id dx = dsub(ZEFC_SEND0(bodyi, ZEFC_SEL_x_o), ZEFC_SEND0(bodyj, ZEFC_SEL_x_o));
+      id dy = dsub(ZEFC_SEND0(bodyi, ZEFC_SEL_y_o), ZEFC_SEND0(bodyj, ZEFC_SEL_y_o));
+      id dz = dsub(ZEFC_SEND0(bodyi, ZEFC_SEL_z_o), ZEFC_SEND0(bodyj, ZEFC_SEL_z_o));
       id d2 = dadd(dadd(dmul(dx, dx), dmul(dy, dy)), dmul(dz, dz));
       id mag = ddiv(dt, dmul(d2, dsqrt(d2)));
-      id massj = bodyj->mass;
+      id massj = ZEFC_SEND0(bodyj, ZEFC_SEL_mass_o);
       vxi = dsub(vxi, dmul(dmul(dx, massj), mag));
       vyi = dsub(vyi, dmul(dmul(dy, massj), mag));
       vzi = dsub(vzi, dmul(dmul(dz, massj), mag));
-      id massi = bodyi->mass;
-      bodyj->vx = dadd(bodyj->vx, dmul(dmul(dx, massi), mag));
-      bodyj->vy = dadd(bodyj->vy, dmul(dmul(dy, massi), mag));
-      bodyj->vz = dadd(bodyj->vz, dmul(dmul(dz, massi), mag));
+      id massi = ZEFC_SEND0(bodyi, ZEFC_SEL_mass_o);
+      (void)ZEFC_SEND1(bodyj, ZEFC_SEL_set_vx_o,
+                       dadd(ZEFC_SEND0(bodyj, ZEFC_SEL_vx_o), dmul(dmul(dx, massi), mag)));
+      (void)ZEFC_SEND1(bodyj, ZEFC_SEL_set_vy_o,
+                       dadd(ZEFC_SEND0(bodyj, ZEFC_SEL_vy_o), dmul(dmul(dy, massi), mag)));
+      (void)ZEFC_SEND1(bodyj, ZEFC_SEL_set_vz_o,
+                       dadd(ZEFC_SEND0(bodyj, ZEFC_SEL_vz_o), dmul(dmul(dz, massi), mag)));
     }
-    bodyi->vx = vxi;
-    bodyi->vy = vyi;
-    bodyi->vz = vzi;
+    (void)ZEFC_SEND1(bodyi, ZEFC_SEL_set_vx_o, vxi);
+    (void)ZEFC_SEND1(bodyi, ZEFC_SEL_set_vy_o, vyi);
+    (void)ZEFC_SEND1(bodyi, ZEFC_SEL_set_vz_o, vzi);
   }
   for (int i = 0; i < n; ++i) {
-    Body_* b = as_body(Array__at(bodies, i));
-    b->x = dadd(b->x, dmul(dt, b->vx));
-    b->y = dadd(b->y, dmul(dt, b->vy));
-    b->z = dadd(b->z, dmul(dt, b->vz));
+    id b = Array__at(bodies, i);
+    (void)ZEFC_SEND1(b, ZEFC_SEL_set_x_o,
+                     dadd(ZEFC_SEND0(b, ZEFC_SEL_x_o), dmul(dt, ZEFC_SEND0(b, ZEFC_SEL_vx_o))));
+    (void)ZEFC_SEND1(b, ZEFC_SEL_set_y_o,
+                     dadd(ZEFC_SEND0(b, ZEFC_SEL_y_o), dmul(dt, ZEFC_SEND0(b, ZEFC_SEL_vy_o))));
+    (void)ZEFC_SEND1(b, ZEFC_SEL_set_z_o,
+                     dadd(ZEFC_SEND0(b, ZEFC_SEL_z_o), dmul(dt, ZEFC_SEND0(b, ZEFC_SEL_vz_o))));
   }
 }
 
@@ -316,21 +289,21 @@ energy(id bodies)
   id e = Double__from_f64(0.);
   const int n = Array__size(bodies);
   for (int i = 0; i < n; ++i) {
-    Body_* bodyi = as_body(Array__at(bodies, i));
-    id massi = bodyi->mass;
-    id vxi = bodyi->vx;
-    id vyi = bodyi->vy;
-    id vzi = bodyi->vz;
+    id bodyi = Array__at(bodies, i);
+    id massi = ZEFC_SEND0(bodyi, ZEFC_SEL_mass_o);
+    id vxi = ZEFC_SEND0(bodyi, ZEFC_SEL_vx_o);
+    id vyi = ZEFC_SEND0(bodyi, ZEFC_SEL_vy_o);
+    id vzi = ZEFC_SEND0(bodyi, ZEFC_SEL_vz_o);
     e = dadd(e,
              dmul(dmul(Double__from_f64(0.5), massi),
                   dadd(dadd(dmul(vxi, vxi), dmul(vyi, vyi)), dmul(vzi, vzi))));
     for (int j = i + 1; j < n; ++j) {
-      Body_* bodyj = as_body(Array__at(bodies, j));
-      id dx = dsub(bodyi->x, bodyj->x);
-      id dy = dsub(bodyi->y, bodyj->y);
-      id dz = dsub(bodyi->z, bodyj->z);
+      id bodyj = Array__at(bodies, j);
+      id dx = dsub(ZEFC_SEND0(bodyi, ZEFC_SEL_x_o), ZEFC_SEND0(bodyj, ZEFC_SEL_x_o));
+      id dy = dsub(ZEFC_SEND0(bodyi, ZEFC_SEL_y_o), ZEFC_SEND0(bodyj, ZEFC_SEL_y_o));
+      id dz = dsub(ZEFC_SEND0(bodyi, ZEFC_SEL_z_o), ZEFC_SEND0(bodyj, ZEFC_SEL_z_o));
       id distance = dsqrt(dadd(dadd(dmul(dx, dx), dmul(dy, dy)), dmul(dz, dz)));
-      e = dsub(e, ddiv(dmul(massi, bodyj->mass), distance));
+      e = dsub(e, ddiv(dmul(massi, ZEFC_SEND0(bodyj, ZEFC_SEL_mass_o)), distance));
     }
   }
   return e;

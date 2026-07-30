@@ -123,4 +123,4 @@ Instruction-count verification under Fil-C++ is a follow-on check, not a gate fo
 
 Next toward the ideal hot path: reloc/text-imm patch for selectors **not** in the closed-world set; optionally flatten `isa_` back to `zefc_method*` with a non-moving slot allocator.
 
-**Monomorphic fields:** when the receiver class is known (closed-world / CHA), accessible get/set may lower to direct struct field access while still installing vtable methods for the polymorphic send ABI. Smoke `nbody` uses this for `Body`.
+**Monomorphic fields (future compiler):** when analysis proves a fixed receiver class, accessible get/set may lower to direct struct access while vtable methods remain for polymorphic sends. Smoke does **not** apply that by hand — `nbody` uses field sends so the bench matches general transpile shape.

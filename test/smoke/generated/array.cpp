@@ -1,6 +1,5 @@
 // Hand-maintained Array runtime (future: generated from .zefc).
 
-#include <cstdarg>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -24,9 +23,9 @@ struct Array_ {
 static VTable* Array_vtable = nullptr;
 
 static id Array__toString_o(id self, int selector, ...);
-static id Array__push_o(id self, int selector, ...);
-static id Array__GET_i(id self, int selector, ...);
-static id Array__mul_PUT_i(id self, int selector, ...);
+static id Array__push_o(id self, int selector, id value);
+static id Array__GET_i(id self, int selector, id index_obj);
+static id Array__mul_PUT_i(id self, int selector, id index_obj, id factor_obj);
 static id Array__size_o(id self, int selector, ...);
 
 static id
@@ -47,38 +46,25 @@ Array__toString_o(id self, int selector, ...)
 }
 
 static id
-Array__push_o(id self, int selector, ...)
+Array__push_o(id self, int selector, id value)
 {
   (void)selector;
-  std::va_list ap;
-  va_start(ap, selector);
-  id value = va_arg(ap, id);
-  va_end(ap);
   body<Array_>(self)->elems.push_back(value);
   return self;
 }
 
 static id
-Array__GET_i(id self, int selector, ...)
+Array__GET_i(id self, int selector, id index_obj)
 {
   (void)selector;
-  std::va_list ap;
-  va_start(ap, selector);
-  id index_obj = va_arg(ap, id);
-  va_end(ap);
   int index = static_cast<int>(Int__to_i64(index_obj));
   return body<Array_>(self)->elems.at(static_cast<size_t>(index));
 }
 
 static id
-Array__mul_PUT_i(id self, int selector, ...)
+Array__mul_PUT_i(id self, int selector, id index_obj, id factor_obj)
 {
   (void)selector;
-  std::va_list ap;
-  va_start(ap, selector);
-  id index_obj = va_arg(ap, id);
-  id factor_obj = va_arg(ap, id);
-  va_end(ap);
   int index = static_cast<int>(Int__to_i64(index_obj));
   long long factor = Int__to_i64(factor_obj);
   Array_* arr = body<Array_>(self);
