@@ -185,7 +185,12 @@ Lexer::lex_one()
     t.kind = TokKind::RBracket;
     break;
   case '.':
-    t.kind = TokKind::Dot;
+    if (ch() == '.') {
+      get();
+      t.kind = TokKind::DotDot;
+    } else {
+      t.kind = TokKind::Dot;
+    }
     break;
   case ',':
     t.kind = TokKind::Comma;

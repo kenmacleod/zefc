@@ -599,7 +599,22 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
       ctx.out << "  " << dst << " = Int__from_i64(" << e.text << ");\n";
     }
     return;
+  case Expr::Kind::RootPackage:
+    throw std::runtime_error("`..` must be followed by a member name");
   case Expr::Kind::Dot: {
+    // ..name → root-package member (package / class object)
+    if (e.lhs && e.lhs->kind == Expr::Kind::RootPackage) {
+      if (ctx.package_cpp.count(e.text)) {
+        ctx.out << "  " << dst << " = as_id(&g_" << ctx.package_cpp[e.text] << ");\n";
+        return;
+      }
+      if (ctx.classes.count(e.text)) {
+        const std::string cpp = class_cpp(ctx.classes[e.text]);
+        ctx.out << "  " << dst << " = as_id(&g_" << cpp << "Class);\n";
+        return;
+      }
+      throw std::runtime_error("unknown root package member `" + e.text + "`");
+    }
     // super.method → direct superclass method call
     if (e.lhs && e.lhs->kind == Expr::Kind::Ident && e.lhs->text == "super") {
       if (!ctx.current_class || ctx.current_class->decl->parent.empty()) {
@@ -707,19 +722,24 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
     ctx.out << "  id " << cond << ";\n";
     emit_expr(ctx, *e.lhs, cond);
     ctx.out << "  if (Int__to_i64(" << cond << ")) {\n";
-    for (const BlockItem& item : e.body) {
-      emit_block_item(ctx, item, nullptr);
-    }
-    ctx.out << "  }";
-    if (!e.else_body.empty()) {
-      ctx.out << " else {\n";
-      for (const BlockItem& item : e.else_body) {
-        emit_block_item(ctx, item, nullptr);
+    if (e.body.empty()) {
+      ctx.out << "  " << dst << " = null_id();\n";
+    } else {
+      for (size_t i = 0; i + 1 < e.body.size(); ++i) {
+        emit_block_item(ctx, e.body[i], nullptr);
       }
-      ctx.out << "  }";
+      emit_block_item(ctx, e.body.back(), &dst);
     }
-    ctx.out << "\n";
-    ctx.out << "  " << dst << " = null_id();\n";
+    ctx.out << "  } else {\n";
+    if (e.else_body.empty()) {
+      ctx.out << "  " << dst << " = null_id();\n";
+    } else {
+      for (size_t i = 0; i + 1 < e.else_body.size(); ++i) {
+        emit_block_item(ctx, e.else_body[i], nullptr);
+      }
+      emit_block_item(ctx, e.else_body.back(), &dst);
+    }
+    ctx.out << "  }\n";
     return;
   }
   case Expr::Kind::Break:
@@ -877,6 +897,60 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
         arg_tmps.push_back(ctx.fresh("t"));
         ctx.out << "  id " << arg_tmps.back() << ";\n";
         emit_expr(ctx, *e.args[i], arg_tmps.back());
+      }
+      // ..name(...) → root-package member call (same builtins / globals as bare name)
+      if (e.lhs->lhs && e.lhs->lhs->kind == Expr::Kind::RootPackage) {
+        const std::string& callee = e.lhs->text;
+        if (callee == "println" || callee == "print") {
+          if (arg_tmps.empty()) {
+            throw std::runtime_error(callee + " expects at least 1 argument");
+          }
+          if (arg_tmps.size() == 1) {
+            ctx.out << "  " << callee << "(" << arg_tmps[0] << ");\n";
+          } else {
+            const std::string acc = ctx.fresh("t");
+            ctx.out << "  id " << acc << " = String__from_utf8(\"\");\n";
+            for (const std::string& a : arg_tmps) {
+              const std::string s = ctx.fresh("t");
+              ctx.out << "  id " << s << " = ZEFC_SEND0(" << a << ", ZEFC_SEL_toString_o);\n";
+              ctx.out << "  " << acc << " = ZEFC_SEND1(" << acc << ", ZEFC_SEL_add_o, " << s
+                      << ");\n";
+            }
+            ctx.out << "  " << callee << "(" << acc << ");\n";
+          }
+          ctx.out << "  " << dst << " = null_id();\n";
+          return;
+        }
+        if (ctx.functions.count(callee)) {
+          ctx.out << "  " << dst << " = fn_" << callee << "(";
+          for (size_t i = 0; i < arg_tmps.size(); ++i) {
+            if (i) {
+              ctx.out << ", ";
+            }
+            ctx.out << arg_tmps[i];
+          }
+          ctx.out << ");\n";
+          return;
+        }
+        if (ctx.classes.count(callee)) {
+          const ClassInfo& ci = ctx.classes[callee];
+          const std::string cpp = class_cpp(ci);
+          if (arg_tmps.empty() && ci.has_static_call0) {
+            ctx.out << "  " << dst << " = " << cpp << "__call_o(as_id(&g_" << cpp
+                    << "Class), " << sel_expr("call_o") << ");\n";
+          } else {
+            ctx.out << "  " << dst << " = " << cpp << "__new(null_id(), 0";
+            for (const std::string& a : arg_tmps) {
+              ctx.out << ", " << a;
+            }
+            ctx.out << ");\n";
+          }
+          return;
+        }
+        if (ctx.package_cpp.count(callee)) {
+          throw std::runtime_error("root package member `" + callee + "` is not callable");
+        }
+        throw std::runtime_error("unknown root package member `" + callee + "`");
       }
       if (e.lhs->lhs && e.lhs->lhs->kind == Expr::Kind::Ident && e.lhs->lhs->text == "super") {
         if (!ctx.current_class || ctx.current_class->decl->parent.empty()) {

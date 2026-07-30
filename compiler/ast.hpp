@@ -85,6 +85,7 @@ struct Expr {
     Break,
     Continue,
     Return,
+    RootPackage, // `..name` base (Zef GetRootPackage)
   } kind;
 
   std::string text; // Ident / String / Number / Dot field / Binary op / Assign "+="

@@ -35,6 +35,7 @@ enum class TokKind {
   LBracket,
   RBracket,
   Dot,
+  DotDot, // ..
   Comma,
   Plus,
   PlusEq,

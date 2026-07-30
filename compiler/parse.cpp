@@ -760,6 +760,10 @@ Parser::parse_mul()
 ExprPtr
 Parser::parse_unary()
 {
+  // Expression-form `if` (Zef unary): `if (c) then else elze`
+  if (check(TokKind::KwIf)) {
+    return parse_if();
+  }
   if (check(TokKind::Minus)) {
     const int line = peek().line;
     next();
@@ -813,6 +817,19 @@ ExprPtr
 Parser::parse_primary()
 {
   const int line = peek().line;
+  // `..name` → root-package member (Zef GetRootPackage().name)
+  if (check(TokKind::DotDot)) {
+    next();
+    auto root = std::make_unique<Expr>();
+    root->kind = Expr::Kind::RootPackage;
+    root->line = line;
+    auto d = std::make_unique<Expr>();
+    d->kind = Expr::Kind::Dot;
+    d->line = line;
+    d->lhs = std::move(root);
+    d->text = expect(TokKind::Ident, "package name").text;
+    return d;
+  }
   if (check(TokKind::KwFn)) {
     next();
     auto e = std::make_unique<Expr>();
