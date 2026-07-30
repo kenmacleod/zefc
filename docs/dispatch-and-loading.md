@@ -14,13 +14,15 @@ This document is the contract for ZefC’s Orchard-style dispatch under dynamic 
 
 | Mechanism | Role | ZefC today | Headed |
 |-----------|------|------------|--------|
-| **Vtable send** | Polymorphic / unknown methods: `isa_` → `slots[sel]` → call | Landed as miss path. Steady-state: **per-site method IC** via `ZEFC_SEND*` (`isa_` guard + cached callee) | Optional unguarded sites when CHA proves monomorphic; reloc/text-imm for late sels |
+| **Vtable send** | Polymorphic / unknown methods: `isa_` → `slots[sel]` → call | Landed as miss path. Steady-state default: **per-site method IC** via `ZEFC_SEND*` (`isa_` guard + cached callee). Compile-time A/B: `-Dmethod_dispatch=ic\|vtable` (`ZEFC_METHOD_IC`) | Optional unguarded sites when CHA proves monomorphic; reloc/text-imm for late sels |
 | **Selector immediates** | Keep `sel` out of a per-send global/GOT load | **Closed-world** `ZEFC_SEL_*` literals; dynamic names use `ZEFC_SITE` cells | Reloc / text-imm patch for late names under Fil-C W^X |
 | **Immediate values** | Int/Double ops without heap + vtable | NaN-box Double; low-bit Int32; `ZEFC_SEND*` short-circuits | Keep; extend bitops/cmp short-circuits as benches need |
 | **Field IC** | Accessible get/set is most of nbody/splay traffic | `ZEFC_IC_GET/SET(obj, sel, Type, member)`: miss primes site; **steady-state unguarded typed member load/store** (Zef UnguardedAccessCache-style). `ZEFC_IC_*_OFFSET` for polymorphic sites | Keep |
 | **Fil-C++** | Memory safety + GC for runtime and generated code | Both Zef and ZefC Fil-C builds are the fair comparison; g++ is a separate baseline | Same. Fil-C allows in-bounds field loads; it does **not** make an extra indirect call free |
 
-**Fairness:** optimize shared runtime and transpile-shaped emission (above). Do not hand-specialize one bench with raw `body->field` unless CHA/compiler would. Typed field IC is the general emit shape when the site’s class layout is known; method IC is the general emit shape for `ZEFC_SEND*` (guard + cached callee). `send(recv, sel, arg)` with a *varying* selector bypasses IC.
+**Fairness:** optimize shared runtime and transpile-shaped emission (above). Do not hand-specialize one bench with raw `body->field` unless CHA/compiler would. Typed field IC is the general emit shape when the site’s class layout is known; method IC is the default emit shape for `ZEFC_SEND*` (guard + cached callee). `send(recv, sel, arg)` with a *varying* selector bypasses IC.
+
+**Method IC vs pure vtable (perf switch):** Meson option `method_dispatch` (`ic` default, or `vtable`) sets `-DZEFC_METHOD_IC=1|0`. Only object `ZEFC_SEND*` changes; Double/Int32 short-circuits and field IC stay. Use two build dirs (e.g. `build-filc-o2` vs `build-filc-o2-vtable`) at the same `buildtype=debugoptimized` when comparing.
 
 ScriptBench smoke (`nbody`, `splay`, `richards`) exercises this stack; see [test/smoke/README.md](../test/smoke/README.md).
 

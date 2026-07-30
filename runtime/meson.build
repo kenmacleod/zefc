@@ -11,10 +11,12 @@ runtime_lib = static_library(
   'zefc_runtime',
   runtime_sources,
   include_directories : runtime_inc,
+  cpp_args : zefc_cpp_args,
   install : false,
 )
 
 runtime_dep = declare_dependency(
   link_with : runtime_lib,
   include_directories : runtime_inc,
+  compile_args : zefc_cpp_args,
 )

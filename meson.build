@@ -19,5 +19,15 @@ endif
 
 runtime_inc = include_directories('runtime/include')
 
+# Compile-time method dispatch: -DZEFC_METHOD_IC=1 (ic) or 0 (pure vtable).
+method_dispatch = get_option('method_dispatch')
+if method_dispatch == 'ic'
+  zefc_method_ic = 1
+else
+  zefc_method_ic = 0
+endif
+zefc_cpp_args = ['-DZEFC_METHOD_IC=@0@'.format(zefc_method_ic)]
+message('method_dispatch=@0@ (ZEFC_METHOD_IC=@1@)'.format(method_dispatch, zefc_method_ic))
+
 subdir('runtime')
 subdir('test/smoke')

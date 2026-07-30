@@ -1,20 +1,37 @@
 #pragma once
 
-#include "zefc/call_ic.hpp"
+#include "zefc/double_api.hpp"
 #include "zefc/field_ic.hpp"
+#include "zefc/int_api.hpp"
 #include "zefc/runtime.hpp"
+
+// Method dispatch for fixed-site ZEFC_SEND* (object receivers):
+//
+//   Meson: -Dmethod_dispatch=ic|vtable  →  -DZEFC_METHOD_IC=1|0
+//
+//   ic (default): per-site CallSite — isa_ guard + cached callee (Zef-style).
+//   vtable:       every send does isa_->slots[sel](…) (C++-virtual shape).
+//
+// Immediate Double/Int32 short-circuit in both modes. Field IC is separate
+// (ZEFC_IC_GET/SET). Varying-selector send() is always pure vtable.
+
+#ifndef ZEFC_METHOD_IC
+#define ZEFC_METHOD_IC 1
+#endif
+
+#if ZEFC_METHOD_IC
+#include "zefc/call_ic.hpp"
+#endif
 
 namespace zefc {
 
-// Object sends: per-site method IC (guard isa_ + cached callee).
-// Immediate Double/Int32 short-circuit inside zefc_call*.
-//
-// Unique CallSite per expansion: statement-expr + __COUNTER__ name suffix.
-// Do not use template<__COUNTER__> for the site — that ODR-merges across TUs
-// and crosses selectors (e.g. Array GET_i vs Double add_o).
-
 #define ZEFC_CONCAT2(a, b) a##b
 #define ZEFC_CONCAT(a, b) ZEFC_CONCAT2(a, b)
+
+#if ZEFC_METHOD_IC
+
+// --- method IC: unique CallSite per expansion (statement-expr + __COUNTER__) ---
+// Do not use template<__COUNTER__> — ODR-merges across TUs and crosses selectors.
 
 #define ZEFC_SEND0(obj, sel) ZEFC_SEND0_I((obj), (sel), __COUNTER__)
 #define ZEFC_SEND0_I(obj, sel, N) \
@@ -58,7 +75,34 @@ namespace zefc {
     zefc::zefc_call4((obj), &ZEFC_CONCAT(_zefc_cs_, N), (a1), (a2), (a3), (a4)); \
   })
 
-// Varying selector (not a fixed call site) — no IC. Prefer ZEFC_SEND* at fixed sites.
+#else // !ZEFC_METHOD_IC — pure vtable
+
+#define ZEFC_SEND0(obj, sel) \
+  (zefc::id_is_double(obj) \
+     ? zefc::zefc_double_send0((obj), (sel)) \
+     : (zefc::id_is_int32(obj) \
+          ? zefc::zefc_int_send0((obj), (sel)) \
+          : ((obj)->isa_->slots[(sel)]((obj), (sel)))))
+
+#define ZEFC_SEND1(obj, sel, a1) \
+  (zefc::id_is_double(obj) \
+     ? zefc::zefc_double_send1((obj), (sel), (a1)) \
+     : (zefc::id_is_int32(obj) \
+          ? zefc::zefc_int_send1((obj), (sel), (a1)) \
+          : ((obj)->isa_->slots[(sel)]((obj), (sel), (a1)))))
+
+#define ZEFC_SEND2(obj, sel, a1, a2) \
+  ((obj)->isa_->slots[(sel)]((obj), (sel), (a1), (a2)))
+
+#define ZEFC_SEND3(obj, sel, a1, a2, a3) \
+  ((obj)->isa_->slots[(sel)]((obj), (sel), (a1), (a2), (a3)))
+
+#define ZEFC_SEND4(obj, sel, a1, a2, a3, a4) \
+  ((obj)->isa_->slots[(sel)]((obj), (sel), (a1), (a2), (a3), (a4)))
+
+#endif // ZEFC_METHOD_IC
+
+// Varying selector (not a fixed call site) — always pure vtable. Prefer ZEFC_SEND*.
 inline id send(id recv, int sel, id arg0)
 {
   if (id_is_double(recv)) {

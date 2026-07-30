@@ -229,6 +229,7 @@ smoke_exe = executable(
   smoke_sources,
   include_directories : [runtime_inc, smoke_inc],
   dependencies : [runtime_dep],
+  cpp_args : zefc_cpp_args,
   install : false,
 )
 
