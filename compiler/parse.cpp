@@ -305,7 +305,11 @@ Parser::parse_package()
   while (!check(TokKind::RBrace) && !check(TokKind::Eof)) {
     if (check(TokKind::KwPackage)) {
       body.packages.push_back(std::make_unique<PackageDecl>(parse_package()));
-    } else if (check(TokKind::KwClass)) {
+    } else if (check(TokKind::KwPrivate) || check(TokKind::KwStatic) || check(TokKind::KwClass)) {
+      // `private` / `static` before nested class (access not enforced yet).
+      while (check(TokKind::KwPrivate) || check(TokKind::KwStatic)) {
+        next();
+      }
       body.classes.push_back(std::make_unique<ClassDecl>(parse_class()));
     } else if (check(TokKind::KwReadable) || check(TokKind::KwAccessible) ||
                check(TokKind::KwMy)) {
@@ -429,6 +433,31 @@ Parser::parse_func()
 }
 
 std::vector<BlockItem>
+Parser::parse_my_decls()
+{
+  // `my a [= e], b [= e], ...`
+  expect(TokKind::KwMy, "my");
+  std::vector<BlockItem> items;
+  for (;;) {
+    BlockItem item;
+    item.kind = BlockItem::Kind::VarDecl;
+    item.line = peek().line;
+    item.var_name = expect(TokKind::Ident, "variable name").text;
+    if (check(TokKind::Eq)) {
+      next();
+      item.expr = parse_expr();
+    }
+    items.push_back(std::move(item));
+    if (check(TokKind::Comma)) {
+      next();
+      continue;
+    }
+    break;
+  }
+  return items;
+}
+
+std::vector<BlockItem>
 Parser::parse_method_body()
 {
   std::vector<BlockItem> body;
@@ -441,13 +470,22 @@ Parser::parse_method_body()
       if (check(TokKind::RBrace)) {
         break;
       }
-      body.push_back(parse_block_item());
+      if (check(TokKind::KwMy)) {
+        for (auto& item : parse_my_decls()) {
+          body.push_back(std::move(item));
+        }
+      } else {
+        body.push_back(parse_block_item());
+      }
       while (check(TokKind::Semicolon)) {
         next();
       }
     }
     expect(TokKind::RBrace, "}");
     return body; // may be empty
+  }
+  if (check(TokKind::KwMy)) {
+    return parse_my_decls();
   }
   body.push_back(parse_block_item());
   return body;
@@ -465,18 +503,15 @@ Parser::parse_block_item()
     item.nested_class = std::make_unique<ClassDecl>(parse_class());
     return item;
   }
-  // Local: my name [= expr]
+  // Local: my name [= expr]  (comma-lists handled in parse_method_body)
   if (check(TokKind::KwMy)) {
-    next();
-    BlockItem item;
-    item.kind = BlockItem::Kind::VarDecl;
-    item.line = line;
-    item.var_name = expect(TokKind::Ident, "variable name").text;
-    if (check(TokKind::Eq)) {
-      next();
-      item.expr = parse_expr();
+    auto items = parse_my_decls();
+    BlockItem first = std::move(items.front());
+    if (items.size() > 1) {
+      throw std::runtime_error("multi-variable my only allowed in { } bodies at line " +
+                               std::to_string(line));
     }
-    return item;
+    return first;
   }
   // Named local function: fn name(...) body  →  my name = fn (...) body
   if (check(TokKind::KwFn)) {
@@ -625,22 +660,103 @@ Parser::parse_expr()
 ExprPtr
 Parser::parse_assign()
 {
-  ExprPtr e = parse_bitand();
-  if (check(TokKind::Eq) || check(TokKind::PlusEq) || check(TokKind::StarEq)) {
-    std::string op = "=";
-    if (check(TokKind::PlusEq)) {
-      op = "+=";
-    } else if (check(TokKind::StarEq)) {
-      op = "*=";
-    }
+  ExprPtr e = parse_or();
+  std::string op;
+  if (check(TokKind::Eq)) {
+    op = "=";
+  } else if (check(TokKind::PlusEq)) {
+    op = "+=";
+  } else if (check(TokKind::MinusEq)) {
+    op = "-=";
+  } else if (check(TokKind::StarEq)) {
+    op = "*=";
+  } else if (check(TokKind::CaretEq)) {
+    op = "^=";
+  } else if (check(TokKind::AmpEq)) {
+    op = "&=";
+  } else if (check(TokKind::PipeEq)) {
+    op = "|=";
+  } else {
+    return e;
+  }
+  next();
+  auto a = std::make_unique<Expr>();
+  a->kind = Expr::Kind::Assign;
+  a->text = op;
+  a->lhs = std::move(e);
+  a->line = a->lhs->line;
+  a->rhs = parse_assign();
+  return a;
+}
+
+ExprPtr
+Parser::parse_or()
+{
+  ExprPtr e = parse_and();
+  while (check(TokKind::PipePipe)) {
     next();
-    auto a = std::make_unique<Expr>();
-    a->kind = Expr::Kind::Assign;
-    a->text = op;
-    a->lhs = std::move(e);
-    a->line = a->lhs->line;
-    a->rhs = parse_assign();
-    return a;
+    auto b = std::make_unique<Expr>();
+    b->kind = Expr::Kind::Binary;
+    b->text = "||";
+    b->lhs = std::move(e);
+    b->line = b->lhs->line;
+    b->rhs = parse_and();
+    e = std::move(b);
+  }
+  return e;
+}
+
+ExprPtr
+Parser::parse_and()
+{
+  // Zef desugars `a && b` to `if (a) b` (else → null).
+  ExprPtr e = parse_bitor();
+  while (check(TokKind::AmpAmp)) {
+    next();
+    auto i = std::make_unique<Expr>();
+    i->kind = Expr::Kind::If;
+    i->lhs = std::move(e);
+    i->line = i->lhs->line;
+    BlockItem then_item;
+    then_item.kind = BlockItem::Kind::Expr;
+    then_item.expr = parse_bitor();
+    then_item.line = then_item.expr ? then_item.expr->line : i->line;
+    i->body.push_back(std::move(then_item));
+    e = std::move(i);
+  }
+  return e;
+}
+
+ExprPtr
+Parser::parse_bitor()
+{
+  ExprPtr e = parse_bitxor();
+  while (check(TokKind::Pipe)) {
+    next();
+    auto b = std::make_unique<Expr>();
+    b->kind = Expr::Kind::Binary;
+    b->text = "|";
+    b->lhs = std::move(e);
+    b->line = b->lhs->line;
+    b->rhs = parse_bitxor();
+    e = std::move(b);
+  }
+  return e;
+}
+
+ExprPtr
+Parser::parse_bitxor()
+{
+  ExprPtr e = parse_bitand();
+  while (check(TokKind::Caret)) {
+    next();
+    auto b = std::make_unique<Expr>();
+    b->kind = Expr::Kind::Binary;
+    b->text = "^";
+    b->lhs = std::move(e);
+    b->line = b->lhs->line;
+    b->rhs = parse_bitand();
+    e = std::move(b);
   }
   return e;
 }
@@ -667,11 +783,19 @@ ExprPtr
 Parser::parse_equality()
 {
   ExprPtr e = parse_relational();
-  while (check(TokKind::EqEq)) {
+  for (;;) {
+    std::string op;
+    if (check(TokKind::EqEq)) {
+      op = "==";
+    } else if (check(TokKind::BangEq)) {
+      op = "!=";
+    } else {
+      break;
+    }
     next();
     auto b = std::make_unique<Expr>();
     b->kind = Expr::Kind::Binary;
-    b->text = "==";
+    b->text = op;
     b->lhs = std::move(e);
     b->line = b->lhs->line;
     b->rhs = parse_relational();
@@ -683,7 +807,7 @@ Parser::parse_equality()
 ExprPtr
 Parser::parse_relational()
 {
-  ExprPtr e = parse_add();
+  ExprPtr e = parse_shift();
   for (;;) {
     std::string op;
     if (check(TokKind::Lt)) {
@@ -694,6 +818,33 @@ Parser::parse_relational()
       op = ">";
     } else if (check(TokKind::GtEq)) {
       op = ">=";
+    } else {
+      break;
+    }
+    next();
+    auto b = std::make_unique<Expr>();
+    b->kind = Expr::Kind::Binary;
+    b->text = op;
+    b->lhs = std::move(e);
+    b->line = b->lhs->line;
+    b->rhs = parse_shift();
+    e = std::move(b);
+  }
+  return e;
+}
+
+ExprPtr
+Parser::parse_shift()
+{
+  ExprPtr e = parse_add();
+  for (;;) {
+    std::string op;
+    if (check(TokKind::LtLt)) {
+      op = "<<";
+    } else if (check(TokKind::GtGtGt)) {
+      op = ">>>";
+    } else if (check(TokKind::GtGt)) {
+      op = ">>";
     } else {
       break;
     }
@@ -764,13 +915,19 @@ Parser::parse_unary()
   if (check(TokKind::KwIf)) {
     return parse_if();
   }
-  if (check(TokKind::Minus)) {
+  if (check(TokKind::Minus) || check(TokKind::Tilde) || check(TokKind::Bang)) {
     const int line = peek().line;
+    std::string op = "-";
+    if (check(TokKind::Tilde)) {
+      op = "~";
+    } else if (check(TokKind::Bang)) {
+      op = "!";
+    }
     next();
     auto u = std::make_unique<Expr>();
     u->kind = Expr::Kind::Unary;
     u->line = line;
-    u->text = "-";
+    u->text = op;
     u->rhs = parse_unary();
     return u;
   }

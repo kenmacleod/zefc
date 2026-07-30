@@ -28,6 +28,27 @@ mangle_escape(const std::string& s)
   return o;
 }
 
+// Struct fields named `id` (etc.) must not use bare `id` as the type — it shadows
+// `zefc::id` for later members. Always qualify the type in layouts.
+const char* kIdType = "::zefc::id";
+
+// Locals/params named `id` would shadow the type for the whole function body.
+std::string
+local_sym(const std::string& name)
+{
+  if (name == "id") {
+    return "z_id";
+  }
+  return name;
+}
+
+std::string
+truthy_expr(const std::string& v)
+{
+  // Null falsy; int 0 falsy (despite odd-pointer tagging); objects/doubles truthy if non-null.
+  return "((" + v + ") && !(id_is_int32(" + v + ") && Int__to_i64(" + v + ") == 0))";
+}
+
 std::string
 mangle_method(const std::string& name, size_t arity)
 {
@@ -92,6 +113,7 @@ struct ClassInfo {
   std::unordered_set<std::string> field_names;
   std::unordered_set<std::string> param_names;
   std::unordered_set<std::string> method_names; // zero-arg instance methods (bare Ident call)
+  std::unordered_map<std::string, size_t> methods; // instance method name → arity
   std::unordered_set<std::string> static_methods0; // zero-arg static methods
   // Type-nested: source name → nested class cpp_name
   std::unordered_map<std::string, std::string> nested_static;
@@ -139,6 +161,9 @@ struct Ctx {
   // While emitting package field inits / methods: short class names in this package.
   std::unordered_map<std::string, std::string> package_locals;
   std::unordered_map<std::string, size_t> package_methods; // name -> arity
+  // Active package (cpp name) whose fields are visible as bare idents.
+  std::string package_scope_cpp;
+  std::unordered_set<std::string> package_scope_fields;
   std::vector<std::string> toplevel_vars;
   const ClassInfo* current_class = nullptr;
   bool in_static_method = false;
@@ -220,7 +245,13 @@ emit_send(Ctx& ctx, const std::string& recv, const std::string& mangled,
     ctx.out << "  " << dst << " = ZEFC_SEND4(" << recv << ", " << sel << ", " << args[0]
             << ", " << args[1] << ", " << args[2] << ", " << args[3] << ");\n";
   } else {
-    throw std::runtime_error("send arity >4 not supported yet");
+    // High-arity: direct table lookup (method is variadic).
+    ctx.out << "  " << dst << " = zefc_method_at(" << recv << ", " << sel << ")(" << recv
+            << ", " << sel;
+    for (const std::string& a : args) {
+      ctx.out << ", " << a;
+    }
+    ctx.out << ");\n";
   }
 }
 
@@ -252,7 +283,10 @@ collect_free(const Expr& e, const std::unordered_set<std::string>& locals,
 
   switch (e.kind) {
   case Expr::Kind::Ident:
-    add_cap(e.text);
+    if (e.text != "null" && e.text != "true" && e.text != "false" && e.text != "this" &&
+        e.text != "super") {
+      add_cap(e.text);
+    }
     break;
   case Expr::Kind::Dot:
     if (e.lhs) {
@@ -421,7 +455,7 @@ emit_lambda(Ctx& ctx, const Expr& e, const std::string& dst)
 
   ctx.prelude << "struct " << cname << "_ {\n  IsaPtr isa_;\n";
   for (const std::string& cap : captures) {
-    ctx.prelude << "  id " << cap << ";\n";
+    ctx.prelude << "  " << kIdType << " " << cap << ";\n";
   }
   ctx.prelude << "};\n";
   ctx.prelude << "static VTable* " << cname << "_vtable = nullptr;\n";
@@ -461,7 +495,7 @@ emit_lambda(Ctx& ctx, const Expr& e, const std::string& dst)
   }
   body_ctx.out << "static id\n" << cname << "__call_o(id self, int selector";
   for (size_t i = 0; i < e.params.size(); ++i) {
-    body_ctx.out << ", id " << e.params[i];
+    body_ctx.out << ", id " << local_sym(e.params[i]);
   }
   body_ctx.out << ")\n{\n  (void)selector;\n";
   const std::string tmp = body_ctx.fresh("t");
@@ -490,7 +524,7 @@ emit_lambda(Ctx& ctx, const Expr& e, const std::string& dst)
       ctx.out << "    _c->" << cap << " = body<" << class_cpp(*ctx.current_class) << "_>(self)->"
               << cap << ";\n";
     } else {
-      ctx.out << "    _c->" << cap << " = " << cap << ";\n";
+      ctx.out << "    _c->" << cap << " = " << local_sym(cap) << ";\n";
     }
   }
   ctx.out << "    " << dst << " = as_id(_c);\n";
@@ -502,6 +536,34 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
 {
   switch (e.kind) {
   case Expr::Kind::Ident: {
+    if (e.text == "null" || e.text == "false") {
+      ctx.out << "  " << dst << " = null_id();\n";
+      return;
+    }
+    if (e.text == "true") {
+      ctx.out << "  " << dst << " = Int__from_i64(1);\n";
+      return;
+    }
+    if (e.text == "this") {
+      ctx.out << "  " << dst << " = self;\n";
+      return;
+    }
+    if (!ctx.package_scope_cpp.empty() && ctx.package_scope_fields.count(e.text) &&
+        !is_field(ctx, e.text) &&
+        !(ctx.current_class && ctx.current_class->param_names.count(e.text))) {
+      bool local = false;
+      for (const std::string& p : ctx.env_params) {
+        if (p == e.text) {
+          local = true;
+          break;
+        }
+      }
+      if (!local) {
+        // Package `my` / field visible in nested class methods and field inits.
+        ctx.out << "  " << dst << " = g_" << ctx.package_scope_cpp << "." << e.text << ";\n";
+        return;
+      }
+    }
     if (e.text == "super") {
       if (!ctx.current_class || ctx.current_class->decl->parent.empty()) {
         throw std::runtime_error("super outside subclass");
@@ -529,7 +591,7 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
           ctx.out << "    _cls->" << cap << " = body<" << class_cpp(*ctx.current_class)
                   << "_>(self)->" << cap << ";\n";
         } else {
-          ctx.out << "    _cls->" << cap << " = " << cap << ";\n";
+          ctx.out << "    _cls->" << cap << " = " << local_sym(cap) << ";\n";
         }
       }
       ctx.out << "    " << dst << " = as_id(_cls);\n";
@@ -562,7 +624,7 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
       // Bare zero-arg function name → call (println(foo), property getters).
       ctx.out << "  " << dst << " = fn_" << e.text << "();\n";
     } else {
-      ctx.out << "  " << dst << " = " << e.text << ";\n";
+      ctx.out << "  " << dst << " = " << local_sym(e.text) << ";\n";
     }
     return;
   }
@@ -591,14 +653,21 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
   case Expr::Kind::String:
     ctx.out << "  " << dst << " = String__from_utf8(\"" << mangle_escape(e.text) << "\");\n";
     return;
-  case Expr::Kind::Number:
-    if (e.text.size() >= 2 && e.text[0] == '0' && (e.text[1] == 'x' || e.text[1] == 'X')) {
+  case Expr::Kind::Number: {
+    const bool is_float =
+        e.text.find('.') != std::string::npos || e.text.find('e') != std::string::npos ||
+        e.text.find('E') != std::string::npos;
+    if (is_float) {
+      ctx.out << "  " << dst << " = Double__from_f64(" << e.text << ");\n";
+    } else if (e.text.size() >= 2 && e.text[0] == '0' &&
+               (e.text[1] == 'x' || e.text[1] == 'X')) {
       ctx.out << "  " << dst << " = Int__from_i64(static_cast<long long>(" << e.text
               << "ULL));\n";
     } else {
       ctx.out << "  " << dst << " = Int__from_i64(" << e.text << ");\n";
     }
     return;
+  }
   case Expr::Kind::RootPackage:
     throw std::runtime_error("`..` must be followed by a member name");
   case Expr::Kind::Dot: {
@@ -659,6 +728,14 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
     return;
   }
   case Expr::Kind::Binary: {
+    // Short-circuit || before evaluating rhs.
+    if (e.text == "||") {
+      emit_expr(ctx, *e.lhs, dst);
+      ctx.out << "  if (!" << truthy_expr(dst) << ") {\n";
+      emit_expr(ctx, *e.rhs, dst);
+      ctx.out << "  }\n";
+      return;
+    }
     const std::string a = ctx.fresh("t");
     const std::string b = ctx.fresh("t");
     ctx.out << "  id " << a << ";\n  id " << b << ";\n";
@@ -689,16 +766,40 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
       ctx.out << "  " << dst << " = ZEFC_SEND1(" << a << ", ZEFC_SITE(\"mod_o\"), " << b
               << ");\n";
     } else if (op == "==") {
-      ctx.out << "  " << dst << " = Int__from_i64((" << a << " == " << b << ") ? 1 : 0);\n";
+      ctx.out << "  " << dst << " = Int__from_i64((id_is_double(" << a
+              << ") ? (Double__to_f64(" << a << ") == Double__to_f64(" << b << ")) : (" << a
+              << " == " << b << ")) ? 1 : 0);\n";
+    } else if (op == "!=") {
+      ctx.out << "  " << dst << " = Int__from_i64((id_is_double(" << a
+              << ") ? (Double__to_f64(" << a << ") != Double__to_f64(" << b << ")) : (" << a
+              << " != " << b << ")) ? 1 : 0);\n";
     } else if (op == "<") {
-      ctx.out << "  " << dst << " = Int__from_i64((Int__to_i64(" << a << ") < Int__to_i64(" << b
-              << ")) ? 1 : 0);\n";
+      ctx.out << "  " << dst << " = Int__from_i64((id_is_double(" << a
+              << ") ? (Double__to_f64(" << a << ") < Double__to_f64(" << b
+              << ")) : (Int__to_i64(" << a << ") < Int__to_i64(" << b << "))) ? 1 : 0);\n";
     } else if (op == "<=") {
-      ctx.out << "  " << dst << " = Int__from_i64((Int__to_i64(" << a << ") <= Int__to_i64(" << b
-              << ")) ? 1 : 0);\n";
+      ctx.out << "  " << dst << " = Int__from_i64((id_is_double(" << a
+              << ") ? (Double__to_f64(" << a << ") <= Double__to_f64(" << b
+              << ")) : (Int__to_i64(" << a << ") <= Int__to_i64(" << b << "))) ? 1 : 0);\n";
     } else if (op == "&") {
       ctx.out << "  " << dst << " = Int__from_i64(Int__to_i64(" << a << ") & Int__to_i64(" << b
               << "));\n";
+    } else if (op == "|") {
+      ctx.out << "  " << dst << " = Int__from_i64(Int__to_i64(" << a << ") | Int__to_i64(" << b
+              << "));\n";
+    } else if (op == "^") {
+      ctx.out << "  " << dst << " = Int__from_i64(Int__to_i64(" << a << ") ^ Int__to_i64(" << b
+              << "));\n";
+    } else if (op == "<<") {
+      ctx.out << "  " << dst << " = Int__from_i64(Int__to_i64(" << a << ") << (Int__to_i64("
+              << b << ") & 63));\n";
+    } else if (op == ">>") {
+      ctx.out << "  " << dst << " = Int__from_i64(Int__to_i64(" << a << ") >> (Int__to_i64("
+              << b << ") & 63));\n";
+    } else if (op == ">>>") {
+      ctx.out << "  " << dst << " = Int__from_i64(static_cast<long long>("
+              << "static_cast<unsigned long long>(Int__to_i64(" << a
+              << ")) >> (Int__to_i64(" << b << ") & 63)));\n";
     } else {
       throw std::runtime_error("unsupported binary op: " + e.text);
     }
@@ -709,7 +810,7 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
     ctx.out << "  while (true) {\n";
     ctx.out << "  id " << cond << ";\n";
     emit_expr(ctx, *e.lhs, cond);
-    ctx.out << "  if (!Int__to_i64(" << cond << ")) {\n    break;\n  }\n";
+    ctx.out << "  if (!" << truthy_expr(cond) << ") {\n    break;\n  }\n";
     for (const BlockItem& item : e.body) {
       emit_block_item(ctx, item, nullptr);
     }
@@ -721,7 +822,7 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
     const std::string cond = ctx.fresh("t");
     ctx.out << "  id " << cond << ";\n";
     emit_expr(ctx, *e.lhs, cond);
-    ctx.out << "  if (Int__to_i64(" << cond << ")) {\n";
+    ctx.out << "  if (" << truthy_expr(cond) << ") {\n";
     if (e.body.empty()) {
       ctx.out << "  " << dst << " = null_id();\n";
     } else {
@@ -764,20 +865,35 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
     return;
   }
   case Expr::Kind::Unary: {
-    if (e.text != "-") {
+    const std::string a = ctx.fresh("t");
+    ctx.out << "  id " << a << ";\n";
+    emit_expr(ctx, *e.rhs, a);
+    if (e.text == "-") {
+      ctx.out << "  if (id_is_double(" << a << ")) {\n";
+      ctx.out << "    " << dst << " = Double__from_f64(-Double__to_f64(" << a << "));\n";
+      ctx.out << "  } else {\n";
+      const std::string z = ctx.fresh("t");
+      ctx.out << "    id " << z << " = Int__from_i64(0);\n";
+      ctx.out << "    " << dst << " = ZEFC_SEND1(" << z << ", ZEFC_SEL_sub_o, " << a << ");\n";
+      ctx.out << "  }\n";
+    } else if (e.text == "~") {
+      ctx.out << "  " << dst << " = Int__from_i64(~Int__to_i64(" << a << "));\n";
+    } else if (e.text == "!") {
+      // Null / int 0 are falsy (Zef); tagged int0 is a non-null odd pointer.
+      ctx.out << "  " << dst << " = Int__from_i64((!(" << a << ") || (id_is_int32(" << a
+              << ") && Int__to_i64(" << a << ") == 0)) ? 1 : 0);\n";
+    } else {
       throw std::runtime_error("unsupported unary op: " + e.text);
     }
-    const std::string a = ctx.fresh("t");
-    const std::string z = ctx.fresh("t");
-    ctx.out << "  id " << a << ";\n  id " << z << ";\n";
-    emit_expr(ctx, *e.rhs, a);
-    ctx.out << "  " << z << " = Int__from_i64(0);\n";
-    ctx.out << "  " << dst << " = ZEFC_SEND1(" << z << ", ZEFC_SEL_sub_o, " << a << ");\n";
     return;
   }
   case Expr::Kind::Assign: {
     const bool plus_eq = (e.text == "+=");
+    const bool minus_eq = (e.text == "-=");
     const bool star_eq = (e.text == "*=");
+    const bool bit_eq =
+        (e.text == "^=" || e.text == "&=" || e.text == "|=");
+    const bool is_rmw = plus_eq || minus_eq || star_eq || bit_eq;
     const std::string rhs = ctx.fresh("t");
     ctx.out << "  id " << rhs << ";\n";
 
@@ -794,7 +910,7 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
       return;
     }
     // a[i] = v → PUT_i
-    if (!plus_eq && !star_eq && e.lhs && e.lhs->kind == Expr::Kind::Index) {
+    if (!is_rmw && e.lhs && e.lhs->kind == Expr::Kind::Index) {
       const std::string recv = ctx.fresh("t");
       const std::string ix = ctx.fresh("t");
       ctx.out << "  id " << recv << ";\n  id " << ix << ";\n";
@@ -806,43 +922,43 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
       return;
     }
 
-    if (plus_eq) {
-      // lhs += rhs  →  lhs = lhs + rhs
+    if (is_rmw) {
+      // lhs OP= rhs  →  lhs = lhs OP rhs
       const std::string cur = ctx.fresh("t");
-      const std::string addend = ctx.fresh("t");
-      ctx.out << "  id " << cur << ";\n  id " << addend << ";\n";
+      const std::string other = ctx.fresh("t");
+      ctx.out << "  id " << cur << ";\n  id " << other << ";\n";
       if (e.lhs && e.lhs->kind == Expr::Kind::Ident && is_field(ctx, e.lhs->text)) {
         const std::string& cls = class_cpp(*ctx.current_class);
         ctx.out << "  " << cur << " = body<" << cls << "_>(self)->" << e.lhs->text << ";\n";
       } else if (e.lhs && e.lhs->kind == Expr::Kind::Ident) {
-        ctx.out << "  " << cur << " = " << e.lhs->text << ";\n";
+        ctx.out << "  " << cur << " = " << local_sym(e.lhs->text) << ";\n";
       } else if (e.lhs && e.lhs->kind == Expr::Kind::Dot) {
         emit_expr(ctx, *e.lhs, cur);
       } else if (e.lhs && e.lhs->kind == Expr::Kind::Index) {
         emit_expr(ctx, *e.lhs, cur);
       } else {
-        throw std::runtime_error("+= target must be an identifier, field, or index");
+        throw std::runtime_error(e.text + " target must be an identifier, field, or index");
       }
-      emit_expr(ctx, *e.rhs, addend);
-      ctx.out << "  " << rhs << " = ZEFC_SEND1(" << cur << ", ZEFC_SEL_add_o, " << addend
-              << ");\n";
-    } else if (star_eq) {
-      const std::string cur = ctx.fresh("t");
-      const std::string factor = ctx.fresh("t");
-      ctx.out << "  id " << cur << ";\n  id " << factor << ";\n";
-      if (e.lhs && e.lhs->kind == Expr::Kind::Ident && is_field(ctx, e.lhs->text)) {
-        const std::string& cls = class_cpp(*ctx.current_class);
-        ctx.out << "  " << cur << " = body<" << cls << "_>(self)->" << e.lhs->text << ";\n";
-      } else if (e.lhs && e.lhs->kind == Expr::Kind::Ident) {
-        ctx.out << "  " << cur << " = " << e.lhs->text << ";\n";
-      } else if (e.lhs && e.lhs->kind == Expr::Kind::Dot) {
-        emit_expr(ctx, *e.lhs, cur);
-      } else {
-        throw std::runtime_error("*= target must be an identifier or field");
+      emit_expr(ctx, *e.rhs, other);
+      if (plus_eq) {
+        ctx.out << "  " << rhs << " = ZEFC_SEND1(" << cur << ", ZEFC_SEL_add_o, " << other
+                << ");\n";
+      } else if (minus_eq) {
+        ctx.out << "  " << rhs << " = ZEFC_SEND1(" << cur << ", ZEFC_SEL_sub_o, " << other
+                << ");\n";
+      } else if (star_eq) {
+        ctx.out << "  " << rhs << " = ZEFC_SEND1(" << cur << ", ZEFC_SEL_mul_o, " << other
+                << ");\n";
+      } else if (e.text == "^=") {
+        ctx.out << "  " << rhs << " = Int__from_i64(Int__to_i64(" << cur << ") ^ Int__to_i64("
+                << other << "));\n";
+      } else if (e.text == "&=") {
+        ctx.out << "  " << rhs << " = Int__from_i64(Int__to_i64(" << cur << ") & Int__to_i64("
+                << other << "));\n";
+      } else if (e.text == "|=") {
+        ctx.out << "  " << rhs << " = Int__from_i64(Int__to_i64(" << cur << ") | Int__to_i64("
+                << other << "));\n";
       }
-      emit_expr(ctx, *e.rhs, factor);
-      ctx.out << "  " << rhs << " = ZEFC_SEND1(" << cur << ", ZEFC_SEL_mul_o, " << factor
-              << ");\n";
     } else {
       emit_expr(ctx, *e.rhs, rhs);
     }
@@ -884,7 +1000,7 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
       // Top-level property: x = v → set_x(v)
       ctx.out << "  " << dst << " = fn_set_" << name << "(" << rhs << ");\n";
     } else {
-      ctx.out << "  " << name << " = " << rhs << ";\n";
+      ctx.out << "  " << local_sym(name) << " = " << rhs << ";\n";
       ctx.out << "  " << dst << " = " << rhs << ";\n";
     }
     return;
@@ -1099,6 +1215,44 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
         }
         return;
       }
+      if (callee == "Array") {
+        if (arg_tmps.empty()) {
+          ctx.out << "  " << dst << " = Array__new();\n";
+        } else if (arg_tmps.size() == 1) {
+          ctx.out << "  " << dst << " = Array__with_size(static_cast<int>(Int__to_i64("
+                  << arg_tmps[0] << ")));\n";
+        } else {
+          throw std::runtime_error("Array(...) expects 0 or 1 argument");
+        }
+        return;
+      }
+      if (callee == "error") {
+        if (arg_tmps.empty()) {
+          throw std::runtime_error("error expects at least 1 argument");
+        }
+        if (arg_tmps.size() == 1) {
+          ctx.out << "  zefc_error(String__cstr(ZEFC_SEND0(" << arg_tmps[0]
+                  << ", ZEFC_SEL_toString_o)));\n";
+        } else {
+          const std::string acc = ctx.fresh("t");
+          ctx.out << "  id " << acc << " = String__from_utf8(\"\");\n";
+          for (const std::string& a : arg_tmps) {
+            const std::string s = ctx.fresh("t");
+            ctx.out << "  id " << s << " = ZEFC_SEND0(" << a << ", ZEFC_SEL_toString_o);\n";
+            ctx.out << "  " << acc << " = ZEFC_SEND1(" << acc << ", ZEFC_SEL_add_o, " << s
+                    << ");\n";
+          }
+          ctx.out << "  zefc_error(String__cstr(" << acc << "));\n";
+        }
+        ctx.out << "  " << dst << " = null_id();\n";
+        return;
+      }
+      if (ctx.current_class && ctx.current_class->methods.count(callee) &&
+          ctx.current_class->methods.at(callee) == arg_tmps.size() &&
+          !ctx.current_class->param_names.count(callee)) {
+        emit_send(ctx, "self", mangle_method(callee, arg_tmps.size()), arg_tmps, dst);
+        return;
+      }
       if (ctx.package_methods.count(callee)) {
         emit_send(ctx, "self", mangle_method(callee, arg_tmps.size()), arg_tmps, dst);
         return;
@@ -1183,7 +1337,7 @@ emit_nested_class(Ctx& ctx, const ClassDecl& c, const std::vector<std::string>& 
   ctx.prelude << "struct " << name << "_ {\n  IsaPtr isa_;\n";
   for (const Field& f : c.fields) {
     if (!f.is_static) {
-      ctx.prelude << "  id " << f.name << ";\n";
+      ctx.prelude << "  " << kIdType << " " << f.name << ";\n";
     }
   }
   for (const std::string& cap : captures) {
@@ -1196,13 +1350,13 @@ emit_nested_class(Ctx& ctx, const ClassDecl& c, const std::vector<std::string>& 
       }
     }
     if (!is_decl_field) {
-      ctx.prelude << "  id " << cap << ";\n";
+      ctx.prelude << "  " << kIdType << " " << cap << ";\n";
     }
   }
   ctx.prelude << "};\n\n";
   ctx.prelude << "struct " << name << "Class_ {\n  IsaPtr isa_;\n";
   for (const std::string& cap : captures) {
-    ctx.prelude << "  id " << cap << ";\n";
+    ctx.prelude << "  " << kIdType << " " << cap << ";\n";
   }
   ctx.prelude << "};\n";
   ctx.prelude << "static VTable* " << name << "_vtable = nullptr;\n";
@@ -1271,7 +1425,7 @@ emit_nested_class(Ctx& ctx, const ClassDecl& c, const std::vector<std::string>& 
       const std::string mangled = mangle_method(m.name, m.params.size());
       mctx.out << "static id\n" << name << "__" << mangled << "(id self, int selector";
       for (size_t i = 0; i < m.params.size(); ++i) {
-        mctx.out << ", id " << m.params[i];
+        mctx.out << ", id " << local_sym(m.params[i]);
       }
       mctx.out << ")\n{\n  (void)selector;\n";
       const std::string tmp = mctx.fresh("t");
@@ -1291,7 +1445,7 @@ emit_nested_class(Ctx& ctx, const ClassDecl& c, const std::vector<std::string>& 
     mctx.out << "static id\n" << name << "Class__call_o(id self, int selector";
     if (ctor) {
       for (size_t i = 0; i < ctor->params.size(); ++i) {
-        mctx.out << ", id " << ctor->params[i];
+        mctx.out << ", id " << local_sym(ctor->params[i]);
       }
     }
     mctx.out << ")\n{\n  (void)selector;\n";
@@ -1412,7 +1566,7 @@ emit_block_item(Ctx& ctx, const BlockItem& item, const std::string* result_dst)
           ctx.out << "    _cls->" << cap << " = body<" << class_cpp(*ctx.current_class)
                   << "_>(self)->" << cap << ";\n";
         } else {
-          ctx.out << "    _cls->" << cap << " = " << cap << ";\n";
+          ctx.out << "    _cls->" << cap << " = " << local_sym(cap) << ";\n";
         }
       }
       ctx.out << "    " << *result_dst << " = as_id(_cls);\n";
@@ -1421,16 +1575,16 @@ emit_block_item(Ctx& ctx, const BlockItem& item, const std::string* result_dst)
     return;
   }
   if (item.kind == BlockItem::Kind::VarDecl) {
-    ctx.out << "  id " << item.var_name;
+    ctx.out << "  id " << local_sym(item.var_name);
     if (item.expr) {
       ctx.out << ";\n";
-      emit_expr_top(ctx, *item.expr, item.var_name);
+      emit_expr_top(ctx, *item.expr, local_sym(item.var_name));
     } else {
       ctx.out << " = null_id();\n";
     }
     ctx.env_params.push_back(item.var_name);
     if (result_dst) {
-      ctx.out << "  " << *result_dst << " = " << item.var_name << ";\n";
+      ctx.out << "  " << *result_dst << " = " << local_sym(item.var_name) << ";\n";
     }
     return;
   }
@@ -1498,8 +1652,11 @@ collect_class_decl(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name, bo
       if (!m.name.empty() && m.params.empty()) {
         info.static_methods0.insert(m.name);
       }
-    } else if (!m.name.empty() && m.params.empty()) {
-      info.method_names.insert(m.name);
+    } else if (!m.name.empty()) {
+      info.methods[m.name] = m.params.size();
+      if (m.params.empty()) {
+        info.method_names.insert(m.name);
+      }
     }
   }
   for (const ClassDecl::Nested& n : c.nested) {
@@ -1683,6 +1840,12 @@ emit_package(Ctx& ctx, const PackageInfo& pkg)
   for (const auto& kv : pkg.packages) {
     emit_package(ctx, ctx.packages.at(kv.second));
   }
+  ctx.package_scope_cpp = name;
+  ctx.package_scope_fields.clear();
+  for (const Field* f : pkg.fields) {
+    ctx.package_scope_fields.insert(f->name);
+  }
+  ctx.package_locals = pkg.classes;
   for (const auto& kv : pkg.classes) {
     const ClassInfo& ci = ctx.classes.at(kv.second);
     emit_class(ctx, *ci.decl, kv.second);
@@ -1690,13 +1853,13 @@ emit_package(Ctx& ctx, const PackageInfo& pkg)
 
   ctx.out << "struct " << name << "_ {\n  IsaPtr isa_;\n";
   for (const Field* f : pkg.fields) {
-    ctx.out << "  id " << f->name << ";\n";
+    ctx.out << "  " << kIdType << " " << f->name << ";\n";
   }
   for (const auto& kv : pkg.classes) {
-    ctx.out << "  id " << kv.first << ";\n";
+    ctx.out << "  " << kIdType << " " << kv.first << ";\n";
   }
   for (const auto& kv : pkg.packages) {
-    ctx.out << "  id " << kv.first << ";\n";
+    ctx.out << "  " << kIdType << " " << kv.first << ";\n";
   }
   ctx.out << "};\n";
   ctx.out << "static " << name << "_ g_" << name << ";\n";
@@ -1817,7 +1980,7 @@ emit_package(Ctx& ctx, const PackageInfo& pkg)
     const std::string mangled = mangle_method(f.name, f.params.size());
     ctx.out << "static id\n" << name << "__" << mangled << "(id self, int selector";
     for (size_t i = 0; i < f.params.size(); ++i) {
-      ctx.out << ", id " << f.params[i];
+      ctx.out << ", id " << local_sym(f.params[i]);
     }
     ctx.out << ")\n{\n  (void)selector;\n";
     emit_pkg_method_prologue();
@@ -1921,6 +2084,8 @@ emit_package(Ctx& ctx, const PackageInfo& pkg)
 
   ctx.package_locals.clear();
   ctx.package_methods.clear();
+  ctx.package_scope_cpp.clear();
+  ctx.package_scope_fields.clear();
   ctx.class_methods << ctx.out.str();
   ctx.out.str("");
   ctx.out.clear();
@@ -1985,24 +2150,24 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
     for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
       for (const Field& f : ctx.classes[*it].decl->fields) {
         if (!f.is_static) {
-          ctx.out << "  id " << f.name << ";\n";
+          ctx.out << "  " << kIdType << " " << f.name << ";\n";
         }
       }
       for (const ClassDecl::Nested& n : ctx.classes[*it].decl->nested) {
         if (!n.is_static) {
-          ctx.out << "  id " << n.decl->name << ";\n";
+          ctx.out << "  " << kIdType << " " << n.decl->name << ";\n";
         }
       }
     }
   }
   for (const Field& f : c.fields) {
     if (!f.is_static) {
-      ctx.out << "  id " << f.name << ";\n";
+      ctx.out << "  " << kIdType << " " << f.name << ";\n";
     }
   }
   for (const ClassDecl::Nested& n : c.nested) {
     if (!n.is_static) {
-      ctx.out << "  id " << n.decl->name << ";\n";
+      ctx.out << "  " << kIdType << " " << n.decl->name << ";\n";
     }
   }
   ctx.out << "};\n\n";
@@ -2012,12 +2177,12 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
     ctx.out << "struct " << name << "Class_ {\n  IsaPtr isa_;\n";
     for (const Field& f : c.fields) {
       if (f.is_static) {
-        ctx.out << "  id " << f.name << ";\n";
+        ctx.out << "  " << kIdType << " " << f.name << ";\n";
       }
     }
     for (const ClassDecl::Nested& n : c.nested) {
       if (n.is_static) {
-        ctx.out << "  id " << n.decl->name << ";\n";
+        ctx.out << "  " << kIdType << " " << n.decl->name << ";\n";
       }
     }
     ctx.out << "};\n";
@@ -2091,7 +2256,7 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
     ctx.out << "static id\n" << name << "__init(id self, int selector";
     if (m) {
       for (size_t i = 0; i < m->params.size(); ++i) {
-        ctx.out << ", id " << m->params[i];
+        ctx.out << ", id " << local_sym(m->params[i]);
       }
     }
     ctx.out << ")\n{\n  (void)selector;\n";
@@ -2142,7 +2307,7 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
     ctx.out << "static id\n" << name << "__new(id, int selector";
     if (m) {
       for (size_t i = 0; i < m->params.size(); ++i) {
-        ctx.out << ", id " << m->params[i];
+        ctx.out << ", id " << local_sym(m->params[i]);
       }
     }
     ctx.out << ")\n{\n  (void)selector;\n";
@@ -2172,7 +2337,7 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
       const std::string mangled = mangle_method(m.name, m.params.size());
       ctx.out << "static id\n" << name << "__" << mangled << "(id self, int selector";
       for (size_t i = 0; i < m.params.size(); ++i) {
-        ctx.out << ", id " << m.params[i];
+        ctx.out << ", id " << local_sym(m.params[i]);
       }
       ctx.out << ")\n{\n  (void)selector;\n";
       ctx.in_static_method = m.is_static;
@@ -2347,6 +2512,8 @@ codegen_cpp(const Program& program, const std::string& source_path)
   ctx.out << "// object_dispatch selected at C++ compile time (-DZEFC_OBJECT_DISPATCH).\n\n";
   ctx.out << "#include \"zefc/array_api.hpp\"\n";
   ctx.out << "#include \"zefc/dispatch.hpp\"\n";
+  ctx.out << "#include \"zefc/double_api.hpp\"\n";
+  ctx.out << "#include \"zefc/error.hpp\"\n";
   ctx.out << "#include \"zefc/field_ic.hpp\"\n";
   ctx.out << "#include \"zefc/int_api.hpp\"\n";
   ctx.out << "#include \"zefc/io.hpp\"\n";
@@ -2361,7 +2528,7 @@ codegen_cpp(const Program& program, const std::string& source_path)
   for (const Stmt& s : program.stmts) {
     if (s.kind == Stmt::Kind::VarDecl) {
       ctx.toplevel_vars.push_back(s.var_name);
-      ctx.out << "static id " << s.var_name << ";\n";
+      ctx.out << "static id " << local_sym(s.var_name) << ";\n";
     }
   }
   if (!ctx.toplevel_vars.empty()) {
@@ -2407,9 +2574,9 @@ codegen_cpp(const Program& program, const std::string& source_path)
           }
         }
         if (shadowed) {
-          cpp_params.push_back(f.params[i] + "__" + std::to_string(i));
+          cpp_params.push_back(local_sym(f.params[i]) + "__" + std::to_string(i));
         } else {
-          cpp_params.push_back(f.params[i]);
+          cpp_params.push_back(local_sym(f.params[i]));
         }
       }
       ctx.out << "static id\nfn_" << f.name << "(";
@@ -2477,9 +2644,9 @@ codegen_cpp(const Program& program, const std::string& source_path)
         ctx.current_class = nullptr;
         emit_line(ctx, s.line);
         if (s.expr) {
-          emit_expr_top(ctx, *s.expr, s.var_name);
+          emit_expr_top(ctx, *s.expr, local_sym(s.var_name));
         } else {
-          ctx.out << "  " << s.var_name << " = null_id();\n";
+          ctx.out << "  " << local_sym(s.var_name) << " = null_id();\n";
         }
         // Already in toplevel_vars / env_params.
       } else if (s.kind == Stmt::Kind::Expr) {

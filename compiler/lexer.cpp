@@ -139,6 +139,7 @@ Lexer::lex_one()
     return t;
   }
 
+  // Numbers: ints, hex, and floats (`4.`, `3.14`, `1e-3`). Leading `.5` handled under '.'.
   if (std::isdigit(static_cast<unsigned char>(c))) {
     std::string n;
     n.push_back(get());
@@ -154,7 +155,27 @@ Lexer::lex_one()
       while (is_hex(ch())) {
         n.push_back(get());
       }
-    } else {
+      t.kind = TokKind::Number;
+      t.text = std::move(n);
+      return t;
+    }
+    while (std::isdigit(static_cast<unsigned char>(ch()))) {
+      n.push_back(get());
+    }
+    if (ch() == '.') {
+      n.push_back(get());
+      while (std::isdigit(static_cast<unsigned char>(ch()))) {
+        n.push_back(get());
+      }
+    }
+    if (ch() == 'e' || ch() == 'E') {
+      n.push_back(get());
+      if (ch() == '+' || ch() == '-') {
+        n.push_back(get());
+      }
+      if (!std::isdigit(static_cast<unsigned char>(ch()))) {
+        throw std::runtime_error("expected exponent digits at line " + std::to_string(t.line));
+      }
       while (std::isdigit(static_cast<unsigned char>(ch()))) {
         n.push_back(get());
       }
@@ -188,6 +209,27 @@ Lexer::lex_one()
     if (ch() == '.') {
       get();
       t.kind = TokKind::DotDot;
+    } else if (std::isdigit(static_cast<unsigned char>(ch()))) {
+      // Leading-dot float: `.5`
+      std::string n;
+      n.push_back('.');
+      while (std::isdigit(static_cast<unsigned char>(ch()))) {
+        n.push_back(get());
+      }
+      if (ch() == 'e' || ch() == 'E') {
+        n.push_back(get());
+        if (ch() == '+' || ch() == '-') {
+          n.push_back(get());
+        }
+        if (!std::isdigit(static_cast<unsigned char>(ch()))) {
+          throw std::runtime_error("expected exponent digits at line " + std::to_string(t.line));
+        }
+        while (std::isdigit(static_cast<unsigned char>(ch()))) {
+          n.push_back(get());
+        }
+      }
+      t.kind = TokKind::Number;
+      t.text = std::move(n);
     } else {
       t.kind = TokKind::Dot;
     }
@@ -204,7 +246,12 @@ Lexer::lex_one()
     }
     break;
   case '-':
-    t.kind = TokKind::Minus;
+    if (ch() == '=') {
+      get();
+      t.kind = TokKind::MinusEq;
+    } else {
+      t.kind = TokKind::Minus;
+    }
     break;
   case '*':
     if (ch() == '=') {
@@ -221,7 +268,45 @@ Lexer::lex_one()
     t.kind = TokKind::Percent;
     break;
   case '&':
-    t.kind = TokKind::Amp;
+    if (ch() == '&') {
+      get();
+      t.kind = TokKind::AmpAmp;
+    } else if (ch() == '=') {
+      get();
+      t.kind = TokKind::AmpEq;
+    } else {
+      t.kind = TokKind::Amp;
+    }
+    break;
+  case '|':
+    if (ch() == '|') {
+      get();
+      t.kind = TokKind::PipePipe;
+    } else if (ch() == '=') {
+      get();
+      t.kind = TokKind::PipeEq;
+    } else {
+      t.kind = TokKind::Pipe;
+    }
+    break;
+  case '^':
+    if (ch() == '=') {
+      get();
+      t.kind = TokKind::CaretEq;
+    } else {
+      t.kind = TokKind::Caret;
+    }
+    break;
+  case '~':
+    t.kind = TokKind::Tilde;
+    break;
+  case '!':
+    if (ch() == '=') {
+      get();
+      t.kind = TokKind::BangEq;
+    } else {
+      t.kind = TokKind::Bang;
+    }
     break;
   case '=':
     if (ch() == '=') {
@@ -235,6 +320,9 @@ Lexer::lex_one()
     if (ch() == '=') {
       get();
       t.kind = TokKind::LtEq;
+    } else if (ch() == '<') {
+      get();
+      t.kind = TokKind::LtLt;
     } else {
       t.kind = TokKind::Lt;
     }
@@ -243,6 +331,14 @@ Lexer::lex_one()
     if (ch() == '=') {
       get();
       t.kind = TokKind::GtEq;
+    } else if (ch() == '>') {
+      get();
+      if (ch() == '>') {
+        get();
+        t.kind = TokKind::GtGtGt;
+      } else {
+        t.kind = TokKind::GtGt;
+      }
     } else {
       t.kind = TokKind::Gt;
     }

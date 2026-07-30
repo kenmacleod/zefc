@@ -40,17 +40,31 @@ enum class TokKind {
   Plus,
   PlusEq,
   Minus,
+  MinusEq,
   Star,
   StarEq,
   Slash,
   Percent,
-  Amp, // &
+  Amp,      // &
+  AmpAmp,   // &&
+  AmpEq,    // &=
+  Pipe,     // |
+  PipePipe, // ||
+  PipeEq,   // |=
+  Caret,    // ^
+  CaretEq,  // ^=
+  Tilde,    // ~
+  Bang,     // !
+  BangEq,   // !=
   Eq,
   EqEq,
   Lt,
   LtEq,
+  LtLt, // <<
   Gt,
   GtEq,
+  GtGt,   // >>
+  GtGtGt, // >>>
   Colon,
   Semicolon,
 };
