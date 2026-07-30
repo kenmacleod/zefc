@@ -33,18 +33,25 @@ This document is the contract for ZefC’s Orchard-style dispatch under dynamic 
 
 ### ScriptBench wall times (matched `-O2`)
 
-Machine: WSL2 x86_64, 2026-07-30. All ZefC/Zef builds `debugoptimized` (`optimization=2`). Fil-C++ 0.678; ZefC g++ = system g++. Five warm runs; table shows approximate medians. Field IC on in all ZefC columns. Zef has no g++ build (Fil-C only).
+Machine: WSL2 x86_64, 2026-07-30. All builds `debugoptimized` (`optimization=2`). Fil-C++ 0.678; ZefC g++ = system g++. Five warm runs; approximate medians. Field IC on in all ZefC columns. Zef has no g++ build.
 
-| Bench | ZefC Fil-C ic | ZefC Fil-C slots | ZefC g++ ic | ZefC g++ slots | Zef Fil-C |
-|-------|---------------|------------------|-------------|----------------|-----------|
-| nbody | ~0.08s | ~0.07s | ~0.01s | ~0.01s | ~0.18s |
-| richards | ~0.05s | ~0.05s | ~0.00s | ~0.00s | ~0.20s |
-| splay | ~1.4s | ~1.4s | ~0.29s | ~0.32s | ~3.5s |
+**Fil-C** (`-Dobject_dispatch=…`):
 
-*(Table from 2026-07-30 used then-named `vtable` = today’s `slots`. Re-baseline `flat` / `site` when comparing those modes.)*
+| Bench | ic | slots | flat | site | Zef |
+|-------|----|-------|------|------|-----|
+| nbody | ~0.05s | ~0.06s | ~0.08s | ~0.10s | ~0.21s |
+| richards | ~0.04s | ~0.04s | ~0.04s | *(crash — poly)* | ~0.19s |
+| splay | ~1.4s | ~1.4s | ~3.9s | ~1.4s | ~2.6s |
 
-**Takeaways:** method IC vs pure slots was noise at `-O2`. Fil-C vs g++ on the same ZefC code is ~5–10× (safety/check tax). ZefC Fil-C beating Zef Fil-C is mostly AOT C++ vs interpretation, not vtable-vs-IC.
+**g++** (same ZefC code; unsafe / no Fil-C checks):
 
+| Bench | ic | slots | flat | site |
+|-------|----|-------|------|------|
+| nbody | ~0.00s | ~0.01s | ~0.01s | ~0.01s |
+| richards | ~0.00s | ~0.00s | ~0.00s | *(crash — poly)* |
+| splay | ~0.25s | ~0.27s | ~0.67s | ~0.22s |
+
+**Takeaways:** `ic` vs `slots` vs `site` (where correct) stay in the noise on these benches. `flat` is similar on nbody/richards but **slower on splay** (live-object map for instance fix-up under many allocs). `site` is invalid under polymorphism (`richards`). Fil-C vs g++ remains ~5–10× on the same dispatch model. ZefC Fil-C vs Zef is still mostly AOT vs interpret (except flat splay, where registry cost dominates).
 
 ScriptBench smoke (`nbody`, `splay`, `richards`) exercises this stack; see [test/smoke/README.md](../test/smoke/README.md).
 
