@@ -112,6 +112,9 @@ struct PackageInfo {
   std::unordered_map<std::string, std::string> classes;  // Bar -> foo_Bar
   std::unordered_map<std::string, const FuncDecl*> funcs;
   std::unordered_map<std::string, std::string> packages; // bar -> Pkg_foo_bar
+  std::vector<const Field*> fields;
+  const std::vector<BlockItem>* ctor_body = nullptr;
+  bool has_ctor = false;
 };
 
 enum class ImportKind { Class, Func, Package };
@@ -133,6 +136,9 @@ struct Ctx {
   std::unordered_map<std::string, PackageInfo> packages; // keyed by cpp_name
   std::unordered_map<std::string, std::string> package_cpp; // source name -> cpp (top-level)
   std::unordered_map<std::string, ImportBinding> imports;
+  // While emitting package field inits / methods: short class names in this package.
+  std::unordered_map<std::string, std::string> package_locals;
+  std::unordered_map<std::string, size_t> package_methods; // name -> arity
   std::vector<std::string> toplevel_vars;
   const ClassInfo* current_class = nullptr;
   bool in_static_method = false;
@@ -513,6 +519,8 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
       }
       ctx.out << "    " << dst << " = as_id(_cls);\n";
       ctx.out << "  }\n";
+    } else if (ctx.package_locals.count(e.text)) {
+      ctx.out << "  " << dst << " = as_id(&g_" << ctx.package_locals[e.text] << "Class);\n";
     } else if (ctx.package_cpp.count(e.text)) {
       ctx.out << "  " << dst << " = as_id(&g_" << ctx.package_cpp[e.text] << ");\n";
     } else if (ctx.imports.count(e.text)) {
@@ -894,7 +902,24 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
                     mangle_method(e.lhs->text, arg_tmps.size()), arg_tmps, dst);
           return;
         }
-        // Class or nested package field → get then call_o
+        if (pkg.classes.count(e.lhs->text)) {
+          const std::string& ccpp = pkg.classes.at(e.lhs->text);
+          const ClassInfo& ci = ctx.classes.at(ccpp);
+          if (arg_tmps.empty() && ci.has_static_call0) {
+            const std::string prop = ctx.fresh("t");
+            ctx.out << "  id " << prop << ";\n";
+            emit_send(ctx, "as_id(&g_" + pcpp + ")", mangle_getter(e.lhs->text), {}, prop);
+            emit_send(ctx, prop, "call_o", arg_tmps, dst);
+          } else {
+            ctx.out << "  " << dst << " = " << ccpp << "__new(null_id(), 0";
+            for (const std::string& a : arg_tmps) {
+              ctx.out << ", " << a;
+            }
+            ctx.out << ");\n";
+          }
+          return;
+        }
+        // Nested package field → get then call_o
         const std::string prop = ctx.fresh("t");
         ctx.out << "  id " << prop << ";\n";
         emit_send(ctx, "as_id(&g_" + pcpp + ")", mangle_getter(e.lhs->text), {}, prop);
@@ -984,8 +1009,15 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
         }
         return;
       }
-      if (ctx.imports.count(callee) && ctx.imports[callee].kind == ImportKind::Class) {
-        const std::string& cpp = ctx.imports[callee].cpp;
+      if (ctx.package_methods.count(callee)) {
+        emit_send(ctx, "self", mangle_method(callee, arg_tmps.size()), arg_tmps, dst);
+        return;
+      }
+      if (ctx.package_locals.count(callee) ||
+          (ctx.imports.count(callee) && ctx.imports[callee].kind == ImportKind::Class)) {
+        const std::string& cpp = ctx.package_locals.count(callee)
+                                   ? ctx.package_locals[callee]
+                                   : ctx.imports[callee].cpp;
         const ClassInfo& ci = ctx.classes.at(cpp);
         if (arg_tmps.empty() && ci.has_static_call0) {
           ctx.out << "  " << dst << " = " << cpp << "__call_o(as_id(&g_" << cpp
@@ -1405,10 +1437,29 @@ collect_package_decl(Ctx& ctx, const PackageDecl& p, const std::string& path)
   PackageInfo& info = ctx.packages[cpp];
   info.path = path;
   info.cpp_name = cpp;
+  for (const Field& f : p.fields) {
+    // Keep pointers into Program-owned PackageDecl fields.
+    bool found = false;
+    for (const Field* existing : info.fields) {
+      if (existing->name == f.name) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      info.fields.push_back(&f);
+    }
+  }
+  if (p.has_ctor) {
+    info.has_ctor = true;
+    info.ctor_body = &p.ctor_body;
+  }
   for (const auto& c : p.classes) {
     const std::string ccpp = path + "_" + c->name;
     if (!info.classes.count(c->name)) {
       collect_class_decl(ctx, *c, ccpp, false);
+      // Package members need a class object even without static methods (foo.Thingy).
+      ctx.classes[ccpp].has_static = true;
       info.classes[c->name] = ccpp;
     }
   }
@@ -1420,6 +1471,42 @@ collect_package_decl(Ctx& ctx, const PackageDecl& p, const std::string& path)
     const std::string ncpp = "Pkg_" + npath;
     info.packages[nested->name] = ncpp;
     collect_package_decl(ctx, *nested, npath);
+  }
+}
+
+static void
+import_package_members(Ctx& ctx, const PackageInfo& pkg)
+{
+  for (const auto& kv : pkg.classes) {
+    ImportBinding b;
+    b.kind = ImportKind::Class;
+    b.cpp = kv.second;
+    ctx.imports[kv.first] = b;
+  }
+  for (const auto& kv : pkg.funcs) {
+    ImportBinding b;
+    b.kind = ImportKind::Func;
+    b.cpp = pkg.cpp_name;
+    b.member = kv.first;
+    b.arity = kv.second->params.size();
+    ctx.imports[kv.first] = b;
+  }
+  for (const auto& kv : pkg.packages) {
+    ImportBinding b;
+    b.kind = ImportKind::Package;
+    b.cpp = kv.second;
+    ctx.imports[kv.first] = b;
+  }
+  for (const Field* f : pkg.fields) {
+    // Import readable/accessible fields as zero-arg getters on the package.
+    if (f->readable || f->accessible) {
+      ImportBinding b;
+      b.kind = ImportKind::Func;
+      b.cpp = pkg.cpp_name;
+      b.member = f->name;
+      b.arity = 0;
+      ctx.imports[f->name] = b;
+    }
   }
 }
 
@@ -1440,31 +1527,35 @@ collect_classes(Ctx& ctx, const Program& program)
       continue;
     }
     if (s.kind == Stmt::Kind::Import) {
-      auto pit = ctx.package_cpp.find(s.import_name);
-      if (pit == ctx.package_cpp.end()) {
-        throw std::runtime_error("import of unknown package " + s.import_name);
+      if (s.import_path.empty()) {
+        throw std::runtime_error("empty import");
       }
-      const PackageInfo& pkg = ctx.packages[pit->second];
-      for (const auto& kv : pkg.classes) {
-        ImportBinding b;
-        b.kind = ImportKind::Class;
-        b.cpp = kv.second;
-        ctx.imports[kv.first] = b;
+      const PackageInfo* pkg = nullptr;
+      if (s.import_path.size() == 1) {
+        const std::string& name = s.import_path[0];
+        auto pit = ctx.package_cpp.find(name);
+        if (pit != ctx.package_cpp.end()) {
+          pkg = &ctx.packages.at(pit->second);
+        } else if (ctx.imports.count(name) && ctx.imports[name].kind == ImportKind::Package) {
+          pkg = &ctx.packages.at(ctx.imports[name].cpp);
+        } else {
+          throw std::runtime_error("import of unknown package " + name);
+        }
+      } else {
+        auto pit = ctx.package_cpp.find(s.import_path[0]);
+        if (pit == ctx.package_cpp.end()) {
+          throw std::runtime_error("import of unknown package " + s.import_path[0]);
+        }
+        pkg = &ctx.packages.at(pit->second);
+        for (size_t i = 1; i < s.import_path.size(); ++i) {
+          auto nit = pkg->packages.find(s.import_path[i]);
+          if (nit == pkg->packages.end()) {
+            throw std::runtime_error("import path missing " + s.import_path[i]);
+          }
+          pkg = &ctx.packages.at(nit->second);
+        }
       }
-      for (const auto& kv : pkg.funcs) {
-        ImportBinding b;
-        b.kind = ImportKind::Func;
-        b.cpp = pkg.cpp_name;
-        b.member = kv.first;
-        b.arity = kv.second->params.size();
-        ctx.imports[kv.first] = b;
-      }
-      for (const auto& kv : pkg.packages) {
-        ImportBinding b;
-        b.kind = ImportKind::Package;
-        b.cpp = kv.second;
-        ctx.imports[kv.first] = b;
-      }
+      import_package_members(ctx, *pkg);
       continue;
     }
     if (s.kind != Stmt::Kind::Class) {
@@ -1494,17 +1585,18 @@ void
 emit_package(Ctx& ctx, const PackageInfo& pkg)
 {
   const std::string& name = pkg.cpp_name;
-  // Nested packages first
   for (const auto& kv : pkg.packages) {
     emit_package(ctx, ctx.packages.at(kv.second));
   }
-  // Classes owned by this package
   for (const auto& kv : pkg.classes) {
     const ClassInfo& ci = ctx.classes.at(kv.second);
     emit_class(ctx, *ci.decl, kv.second);
   }
 
   ctx.out << "struct " << name << "_ {\n  IsaPtr isa_;\n";
+  for (const Field* f : pkg.fields) {
+    ctx.out << "  id " << f->name << ";\n";
+  }
   for (const auto& kv : pkg.classes) {
     ctx.out << "  id " << kv.first << ";\n";
   }
@@ -1514,8 +1606,24 @@ emit_package(Ctx& ctx, const PackageInfo& pkg)
   ctx.out << "};\n";
   ctx.out << "static " << name << "_ g_" << name << ";\n";
   ctx.out << "static VTable* " << name << "_vtable = nullptr;\n";
-  ctx.out << "static bool g_" << name << "_inited = false;\n\n";
+  ctx.out << "static bool g_" << name << "_inited = false;\n";
+  ctx.out << "static bool g_" << name << "_constructed = false;\n\n";
 
+  ctx.out << "static void ensure_" << name << "();\n";
+  ctx.out << "static void ensure_" << name << "_constructed();\n";
+  if (pkg.has_ctor) {
+    ctx.out << "static id " << name << "__init(id self, int selector);\n";
+  }
+  for (const Field* f : pkg.fields) {
+    if (f->readable || f->accessible) {
+      ctx.out << "static id " << name << "__" << mangle_getter(f->name)
+              << "(id self, int selector);\n";
+    }
+    if (f->accessible) {
+      ctx.out << "static id " << name << "__" << mangle_setter(f->name)
+              << "(id self, int selector, id v);\n";
+    }
+  }
   for (const auto& kv : pkg.classes) {
     ctx.out << "static id " << name << "__" << mangle_getter(kv.first)
             << "(id self, int selector);\n";
@@ -1534,22 +1642,79 @@ emit_package(Ctx& ctx, const PackageInfo& pkg)
   }
   ctx.out << "\n";
 
-  // Getters (layouts stay in out; methods deferred)
+  std::ostringstream saved_out;
+  saved_out << ctx.out.str();
+  ctx.out.str("");
+  ctx.out.clear();
+
+  // Fake class env for package methods / ctor / field access via self.
+  ClassDecl fake_decl;
+  fake_decl.name = name;
+  for (const Field* f : pkg.fields) {
+    Field ff;
+    ff.name = f->name;
+    fake_decl.fields.push_back(std::move(ff));
+  }
+  ClassInfo fake_info;
+  fake_info.decl = &fake_decl;
+  fake_info.cpp_name = name;
+  for (const Field* f : pkg.fields) {
+    fake_info.field_names.insert(f->name);
+  }
+  for (const auto& kv : pkg.funcs) {
+    if (kv.second->params.empty()) {
+      fake_info.method_names.insert(kv.first);
+    }
+    ctx.package_methods[kv.first] = kv.second->params.size();
+  }
+  ctx.package_locals = pkg.classes;
+
+  auto emit_pkg_method_prologue = [&]() {
+    ctx.out << "  ensure_" << name << "_constructed();\n";
+  };
+
+  for (const Field* f : pkg.fields) {
+    if (f->readable || f->accessible) {
+      ctx.out << "static id\n" << name << "__" << mangle_getter(f->name)
+              << "(id self, int selector)\n{\n  (void)selector;\n";
+      emit_pkg_method_prologue();
+      ctx.out << "  return body<" << name << "_>(self)->" << f->name << ";\n}\n\n";
+    }
+    if (f->accessible) {
+      ctx.out << "static id\n" << name << "__" << mangle_setter(f->name)
+              << "(id self, int selector, id v)\n{\n  (void)selector;\n";
+      emit_pkg_method_prologue();
+      ctx.out << "  body<" << name << "_>(self)->" << f->name << " = v;\n";
+      ctx.out << "  return null_id();\n}\n\n";
+    }
+  }
   for (const auto& kv : pkg.classes) {
     ctx.out << "static id\n" << name << "__" << mangle_getter(kv.first)
             << "(id self, int selector)\n{\n  (void)selector;\n";
+    emit_pkg_method_prologue();
     ctx.out << "  return body<" << name << "_>(self)->" << kv.first << ";\n}\n\n";
   }
   for (const auto& kv : pkg.packages) {
     ctx.out << "static id\n" << name << "__" << mangle_getter(kv.first)
             << "(id self, int selector)\n{\n  (void)selector;\n";
+    emit_pkg_method_prologue();
     ctx.out << "  return body<" << name << "_>(self)->" << kv.first << ";\n}\n\n";
   }
 
-  std::ostringstream saved_out;
-  saved_out << ctx.out.str();
-  ctx.out.str("");
-  ctx.out.clear();
+  if (pkg.has_ctor && pkg.ctor_body) {
+    ctx.out << "static id\n" << name << "__init(id self, int selector)\n{\n  (void)selector;\n";
+    ctx.current_class = &fake_info;
+    ctx.env_params = ctx.toplevel_vars;
+    for (const Field* f : pkg.fields) {
+      ctx.env_params.push_back(f->name);
+    }
+    const std::string tmp = ctx.fresh("t");
+    ctx.out << "  id " << tmp << ";\n";
+    emit_body(ctx, *pkg.ctor_body, tmp, true);
+    ctx.env_params.clear();
+    ctx.current_class = nullptr;
+    ctx.out << "}\n\n";
+  }
 
   for (const auto& kv : pkg.funcs) {
     const FuncDecl& f = *kv.second;
@@ -1558,9 +1723,17 @@ emit_package(Ctx& ctx, const PackageInfo& pkg)
     for (size_t i = 0; i < f.params.size(); ++i) {
       ctx.out << ", id " << f.params[i];
     }
-    ctx.out << ")\n{\n  (void)selector;\n  (void)self;\n";
-    ctx.current_class = nullptr;
+    ctx.out << ")\n{\n  (void)selector;\n";
+    emit_pkg_method_prologue();
+    ctx.current_class = &fake_info;
+    fake_info.param_names.clear();
+    for (const std::string& p : f.params) {
+      fake_info.param_names.insert(p);
+    }
     ctx.env_params = ctx.toplevel_vars;
+    for (const Field* fild : pkg.fields) {
+      ctx.env_params.push_back(fild->name);
+    }
     for (const std::string& p : f.params) {
       ctx.env_params.push_back(p);
     }
@@ -1568,6 +1741,7 @@ emit_package(Ctx& ctx, const PackageInfo& pkg)
     ctx.out << "  id " << tmp << ";\n";
     emit_body(ctx, f.body, tmp, false);
     ctx.env_params.clear();
+    ctx.current_class = nullptr;
     ctx.out << "}\n\n";
   }
 
@@ -1581,6 +1755,24 @@ emit_package(Ctx& ctx, const PackageInfo& pkg)
   }
   ctx.out << "  " << name << "_vtable = vtable_create();\n";
   ctx.out << "  zefc_set_isa(&g_" << name << ", " << name << "_vtable);\n";
+  for (const Field* f : pkg.fields) {
+    if (f->readable || f->accessible) {
+      ctx.out << "  field_register_get(" << name << "_vtable, selector_intern(\""
+              << mangle_getter(f->name) << "\"), offsetof(" << name << "_, " << f->name
+              << "));\n";
+      ctx.out << "  vtable_set(" << name << "_vtable, selector_intern(\""
+              << mangle_getter(f->name) << "\"), " << name << "__" << mangle_getter(f->name)
+              << ");\n";
+    }
+    if (f->accessible) {
+      ctx.out << "  field_register_set(" << name << "_vtable, selector_intern(\""
+              << mangle_setter(f->name) << "\"), offsetof(" << name << "_, " << f->name
+              << "));\n";
+      ctx.out << "  vtable_set(" << name << "_vtable, selector_intern(\""
+              << mangle_setter(f->name) << "\"), " << name << "__" << mangle_setter(f->name)
+              << ");\n";
+    }
+  }
   for (const auto& kv : pkg.classes) {
     ctx.out << "  field_register_get(" << name << "_vtable, selector_intern(\""
             << mangle_getter(kv.first) << "\"), offsetof(" << name << "_, " << kv.first
@@ -1605,9 +1797,34 @@ emit_package(Ctx& ctx, const PackageInfo& pkg)
     ctx.out << "  vtable_set(" << name << "_vtable, selector_intern(\"" << mangled
             << "\"), " << name << "__" << mangled << ");\n";
   }
+  // Field initializers (package class names resolve via package_locals).
+  ctx.package_locals = pkg.classes;
+  ctx.current_class = nullptr;
+  for (const Field* f : pkg.fields) {
+    if (!f->init) {
+      ctx.out << "  g_" << name << "." << f->name << " = null_id();\n";
+      continue;
+    }
+    const std::string t = ctx.fresh("t");
+    ctx.out << "  id " << t << ";\n";
+    emit_expr_top(ctx, *f->init, t);
+    ctx.out << "  g_" << name << "." << f->name << " = " << t << ";\n";
+  }
+  ctx.package_locals.clear();
   ctx.out << "  g_" << name << "_inited = true;\n";
   ctx.out << "}\n\n";
 
+  ctx.out << "static void\nensure_" << name << "_constructed()\n{\n";
+  ctx.out << "  ensure_" << name << "();\n";
+  ctx.out << "  if (g_" << name << "_constructed) {\n    return;\n  }\n";
+  ctx.out << "  g_" << name << "_constructed = true;\n";
+  if (pkg.has_ctor) {
+    ctx.out << "  (void)" << name << "__init(as_id(&g_" << name << "), 0);\n";
+  }
+  ctx.out << "}\n\n";
+
+  ctx.package_locals.clear();
+  ctx.package_methods.clear();
   ctx.class_methods << ctx.out.str();
   ctx.out.str("");
   ctx.out.clear();

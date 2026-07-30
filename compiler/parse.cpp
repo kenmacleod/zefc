@@ -88,7 +88,11 @@ Parser::parse_stmt()
     next();
     Stmt s;
     s.kind = Stmt::Kind::Import;
-    s.import_name = expect(TokKind::Ident, "package name").text;
+    s.import_path.push_back(expect(TokKind::Ident, "package name").text);
+    while (check(TokKind::Dot)) {
+      next();
+      s.import_path.push_back(expect(TokKind::Ident, "package name").text);
+    }
     return s;
   }
   if (check(TokKind::KwClass)) {
@@ -270,16 +274,61 @@ PackageDecl
 Parser::parse_package()
 {
   expect(TokKind::KwPackage, "package");
-  PackageDecl p;
-  p.name = expect(TokKind::Ident, "package name").text;
+  std::vector<std::string> path;
+  path.push_back(expect(TokKind::Ident, "package name").text);
+  while (check(TokKind::Dot)) {
+    next();
+    path.push_back(expect(TokKind::Ident, "package name").text);
+  }
   expect(TokKind::LBrace, "{");
+
+  PackageDecl body;
   while (!check(TokKind::RBrace) && !check(TokKind::Eof)) {
     if (check(TokKind::KwPackage)) {
-      p.packages.push_back(std::make_unique<PackageDecl>(parse_package()));
+      body.packages.push_back(std::make_unique<PackageDecl>(parse_package()));
     } else if (check(TokKind::KwClass)) {
-      p.classes.push_back(std::make_unique<ClassDecl>(parse_class()));
+      body.classes.push_back(std::make_unique<ClassDecl>(parse_class()));
+    } else if (check(TokKind::KwReadable) || check(TokKind::KwAccessible) ||
+               check(TokKind::KwMy)) {
+      const bool is_my = check(TokKind::KwMy);
+      const bool is_acc = check(TokKind::KwAccessible);
+      next();
+      for (;;) {
+        Field f;
+        f.name = expect(TokKind::Ident, "field name").text;
+        if (is_my) {
+        } else if (is_acc) {
+          f.accessible = true;
+          f.readable = true;
+        } else {
+          f.readable = true;
+        }
+        if (check(TokKind::Eq)) {
+          next();
+          f.init = parse_expr();
+        }
+        body.fields.push_back(std::move(f));
+        if (check(TokKind::Comma)) {
+          next();
+          continue;
+        }
+        break;
+      }
     } else if (check(TokKind::KwFn)) {
-      p.funcs.push_back(parse_func());
+      Method m = parse_method();
+      if (m.name.empty()) {
+        if (body.has_ctor) {
+          throw std::runtime_error("duplicate package constructor");
+        }
+        body.has_ctor = true;
+        body.ctor_body = std::move(m.body);
+      } else {
+        FuncDecl f;
+        f.name = m.name;
+        f.params = m.params;
+        f.body = std::move(m.body);
+        body.funcs.push_back(std::move(f));
+      }
     } else {
       Token t = peek();
       throw std::runtime_error("unexpected token in package body at line " +
@@ -287,7 +336,26 @@ Parser::parse_package()
     }
   }
   expect(TokKind::RBrace, "}");
-  return p;
+
+  // `package foo.bar.baz { body }` → nest empty packages with body on the leaf.
+  PackageDecl root;
+  root.name = path[0];
+  PackageDecl* leaf = &root;
+  for (size_t i = 1; i < path.size(); ++i) {
+    auto nested = std::make_unique<PackageDecl>();
+    nested->name = path[i];
+    leaf->packages.push_back(std::move(nested));
+    leaf = leaf->packages.back().get();
+  }
+  leaf->fields = std::move(body.fields);
+  leaf->classes = std::move(body.classes);
+  leaf->funcs = std::move(body.funcs);
+  leaf->ctor_body = std::move(body.ctor_body);
+  leaf->has_ctor = body.has_ctor;
+  for (auto& nested : body.packages) {
+    leaf->packages.push_back(std::move(nested));
+  }
+  return root;
 }
 
 Method

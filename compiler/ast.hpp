@@ -100,8 +100,11 @@ struct FuncDecl {
 
 struct PackageDecl {
   std::string name;
+  std::vector<Field> fields;
   std::vector<std::unique_ptr<ClassDecl>> classes;
   std::vector<FuncDecl> funcs;
+  std::vector<BlockItem> ctor_body; // package constructor `fn { ... }`
+  bool has_ctor = false;
   std::vector<std::unique_ptr<PackageDecl>> packages;
 
   PackageDecl();
@@ -118,8 +121,8 @@ struct Stmt {
   FuncDecl func_decl;
   PackageDecl package_decl;
   ExprPtr expr;
-  std::string var_name;    // VarDecl
-  std::string import_name; // Import
+  std::string var_name;                 // VarDecl
+  std::vector<std::string> import_path; // Import: foo or foo.bar.baz
 };
 
 struct Program {
