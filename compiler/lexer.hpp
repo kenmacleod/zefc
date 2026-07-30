@@ -25,6 +25,8 @@ enum class TokKind {
   KwBreak,
   KwContinue,
   KwReturn,
+  KwPackage,
+  KwImport,
   // punct
   LBrace,
   RBrace,

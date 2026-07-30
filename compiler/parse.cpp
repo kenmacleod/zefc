@@ -16,6 +16,11 @@ ClassDecl::~ClassDecl() = default;
 ClassDecl::ClassDecl(ClassDecl&&) noexcept = default;
 ClassDecl& ClassDecl::operator=(ClassDecl&&) noexcept = default;
 
+PackageDecl::PackageDecl() = default;
+PackageDecl::~PackageDecl() = default;
+PackageDecl::PackageDecl(PackageDecl&&) noexcept = default;
+PackageDecl& PackageDecl::operator=(PackageDecl&&) noexcept = default;
+
 Parser::Parser(Lexer lex)
   : lex_(std::move(lex))
 {
@@ -73,6 +78,19 @@ Parser::parse_program()
 Stmt
 Parser::parse_stmt()
 {
+  if (check(TokKind::KwPackage)) {
+    Stmt s;
+    s.kind = Stmt::Kind::Package;
+    s.package_decl = parse_package();
+    return s;
+  }
+  if (check(TokKind::KwImport)) {
+    next();
+    Stmt s;
+    s.kind = Stmt::Kind::Import;
+    s.import_name = expect(TokKind::Ident, "package name").text;
+    return s;
+  }
   if (check(TokKind::KwClass)) {
     Stmt s;
     s.kind = Stmt::Kind::Class;
@@ -246,6 +264,30 @@ Parser::parse_class()
   }
   expect(TokKind::RBrace, "}");
   return c;
+}
+
+PackageDecl
+Parser::parse_package()
+{
+  expect(TokKind::KwPackage, "package");
+  PackageDecl p;
+  p.name = expect(TokKind::Ident, "package name").text;
+  expect(TokKind::LBrace, "{");
+  while (!check(TokKind::RBrace) && !check(TokKind::Eof)) {
+    if (check(TokKind::KwPackage)) {
+      p.packages.push_back(std::make_unique<PackageDecl>(parse_package()));
+    } else if (check(TokKind::KwClass)) {
+      p.classes.push_back(std::make_unique<ClassDecl>(parse_class()));
+    } else if (check(TokKind::KwFn)) {
+      p.funcs.push_back(parse_func());
+    } else {
+      Token t = peek();
+      throw std::runtime_error("unexpected token in package body at line " +
+                               std::to_string(t.line));
+    }
+  }
+  expect(TokKind::RBrace, "}");
+  return p;
 }
 
 Method

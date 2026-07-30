@@ -106,6 +106,23 @@ struct FuncInfo {
   size_t arity = 0;
 };
 
+struct PackageInfo {
+  std::string path;     // foo, foo_bar
+  std::string cpp_name; // Pkg_foo
+  std::unordered_map<std::string, std::string> classes;  // Bar -> foo_Bar
+  std::unordered_map<std::string, const FuncDecl*> funcs;
+  std::unordered_map<std::string, std::string> packages; // bar -> Pkg_foo_bar
+};
+
+enum class ImportKind { Class, Func, Package };
+
+struct ImportBinding {
+  ImportKind kind = ImportKind::Class;
+  std::string cpp;    // class cpp, or package cpp
+  std::string member; // func name when Kind::Func
+  size_t arity = 0;
+};
+
 struct Ctx {
   std::ostringstream out;
   std::ostringstream prelude; // closure / nested-class types at namespace scope
@@ -113,6 +130,9 @@ struct Ctx {
   std::ostringstream class_methods;
   std::unordered_map<std::string, ClassInfo> classes;
   std::unordered_map<std::string, FuncInfo> functions;
+  std::unordered_map<std::string, PackageInfo> packages; // keyed by cpp_name
+  std::unordered_map<std::string, std::string> package_cpp; // source name -> cpp (top-level)
+  std::unordered_map<std::string, ImportBinding> imports;
   std::vector<std::string> toplevel_vars;
   const ClassInfo* current_class = nullptr;
   bool in_static_method = false;
@@ -141,6 +161,8 @@ void emit_block_item(Ctx& ctx, const BlockItem& item, const std::string* result_
 void emit_nested_class(Ctx& ctx, const ClassDecl& c, const std::vector<std::string>& captures);
 void emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name);
 void collect_class_decl(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name, bool top_level);
+void collect_package_decl(Ctx& ctx, const PackageDecl& p, const std::string& path);
+void emit_package(Ctx& ctx, const PackageInfo& pkg);
 
 std::string
 class_cpp(const ClassInfo& info)
@@ -491,6 +513,19 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
       }
       ctx.out << "    " << dst << " = as_id(_cls);\n";
       ctx.out << "  }\n";
+    } else if (ctx.package_cpp.count(e.text)) {
+      ctx.out << "  " << dst << " = as_id(&g_" << ctx.package_cpp[e.text] << ");\n";
+    } else if (ctx.imports.count(e.text)) {
+      const ImportBinding& b = ctx.imports[e.text];
+      if (b.kind == ImportKind::Class) {
+        ctx.out << "  " << dst << " = as_id(&g_" << b.cpp << "Class);\n";
+      } else if (b.kind == ImportKind::Package) {
+        ctx.out << "  " << dst << " = as_id(&g_" << b.cpp << ");\n";
+      } else if (b.kind == ImportKind::Func && b.arity == 0) {
+        emit_send(ctx, "as_id(&g_" + b.cpp + ")", mangle_method(b.member, 0), {}, dst);
+      } else {
+        ctx.out << "  " << dst << " = as_id(&g_" << b.cpp << ");\n";
+      }
     } else if (ctx.current_class && ctx.in_static_method &&
                ctx.current_class->static_methods0.count(e.text) &&
                !ctx.current_class->param_names.count(e.text)) {
@@ -564,6 +599,18 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
                 << ");\n";
       } else {
         ctx.out << "  " << dst << " = g_" << cpp << "Class." << e.text << ";\n";
+      }
+      return;
+    }
+    // package.member → method / class / nested package (via send getters or methods)
+    if (e.lhs && e.lhs->kind == Expr::Kind::Ident && ctx.package_cpp.count(e.lhs->text)) {
+      const std::string& pcpp = ctx.package_cpp[e.lhs->text];
+      const PackageInfo& pkg = ctx.packages[pcpp];
+      if (pkg.funcs.count(e.text)) {
+        emit_send(ctx, "as_id(&g_" + pcpp + ")",
+                  mangle_method(e.text, pkg.funcs.at(e.text)->params.size()), {}, dst);
+      } else {
+        emit_send(ctx, "as_id(&g_" + pcpp + ")", mangle_getter(e.text), {}, dst);
       }
       return;
     }
@@ -837,6 +884,23 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
         emit_send(ctx, recv, "call_o", arg_tmps, dst);
         return;
       }
+      // package.member(args)
+      if (e.lhs->lhs && e.lhs->lhs->kind == Expr::Kind::Ident &&
+          ctx.package_cpp.count(e.lhs->lhs->text)) {
+        const std::string& pcpp = ctx.package_cpp[e.lhs->lhs->text];
+        const PackageInfo& pkg = ctx.packages[pcpp];
+        if (pkg.funcs.count(e.lhs->text)) {
+          emit_send(ctx, "as_id(&g_" + pcpp + ")",
+                    mangle_method(e.lhs->text, arg_tmps.size()), arg_tmps, dst);
+          return;
+        }
+        // Class or nested package field → get then call_o
+        const std::string prop = ctx.fresh("t");
+        ctx.out << "  id " << prop << ";\n";
+        emit_send(ctx, "as_id(&g_" + pcpp + ")", mangle_getter(e.lhs->text), {}, prop);
+        emit_send(ctx, prop, "call_o", arg_tmps, dst);
+        return;
+      }
       const std::string recv = ctx.fresh("t");
       ctx.out << "  id " << recv << ";\n";
       emit_expr(ctx, *e.lhs->lhs, recv);
@@ -844,6 +908,13 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
       bool treat_as_get_call = false;
       for (const auto& kv : ctx.classes) {
         if (kv.second.nested_instance.count(e.lhs->text)) {
+          treat_as_get_call = true;
+          break;
+        }
+      }
+      // Package class member accessed via nested recv (foo.bar is package, etc.)
+      for (const auto& kv : ctx.packages) {
+        if (kv.second.classes.count(e.lhs->text)) {
           treat_as_get_call = true;
           break;
         }
@@ -911,6 +982,27 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
                     << ");\n";
           }
         }
+        return;
+      }
+      if (ctx.imports.count(callee) && ctx.imports[callee].kind == ImportKind::Class) {
+        const std::string& cpp = ctx.imports[callee].cpp;
+        const ClassInfo& ci = ctx.classes.at(cpp);
+        if (arg_tmps.empty() && ci.has_static_call0) {
+          ctx.out << "  " << dst << " = " << cpp << "__call_o(as_id(&g_" << cpp
+                  << "Class), " << sel_expr("call_o") << ");\n";
+        } else {
+          ctx.out << "  " << dst << " = " << cpp << "__new(null_id(), 0";
+          for (const std::string& a : arg_tmps) {
+            ctx.out << ", " << a;
+          }
+          ctx.out << ");\n";
+        }
+        return;
+      }
+      if (ctx.imports.count(callee) && ctx.imports[callee].kind == ImportKind::Func) {
+        const ImportBinding& b = ctx.imports[callee];
+        emit_send(ctx, "as_id(&g_" + b.cpp + ")", mangle_method(b.member, arg_tmps.size()),
+                  arg_tmps, dst);
         return;
       }
       if (ctx.classes.count(callee)) {
@@ -1307,6 +1399,31 @@ collect_class_decl(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name, bo
 }
 
 void
+collect_package_decl(Ctx& ctx, const PackageDecl& p, const std::string& path)
+{
+  const std::string cpp = "Pkg_" + path;
+  PackageInfo& info = ctx.packages[cpp];
+  info.path = path;
+  info.cpp_name = cpp;
+  for (const auto& c : p.classes) {
+    const std::string ccpp = path + "_" + c->name;
+    if (!info.classes.count(c->name)) {
+      collect_class_decl(ctx, *c, ccpp, false);
+      info.classes[c->name] = ccpp;
+    }
+  }
+  for (const FuncDecl& f : p.funcs) {
+    info.funcs[f.name] = &f;
+  }
+  for (const auto& nested : p.packages) {
+    const std::string npath = path + "_" + nested->name;
+    const std::string ncpp = "Pkg_" + npath;
+    info.packages[nested->name] = ncpp;
+    collect_package_decl(ctx, *nested, npath);
+  }
+}
+
+void
 collect_classes(Ctx& ctx, const Program& program)
 {
   for (const Stmt& s : program.stmts) {
@@ -1315,6 +1432,39 @@ collect_classes(Ctx& ctx, const Program& program)
       fi.decl = &s.func_decl;
       fi.arity = s.func_decl.params.size();
       ctx.functions[s.func_decl.name] = fi;
+      continue;
+    }
+    if (s.kind == Stmt::Kind::Package) {
+      collect_package_decl(ctx, s.package_decl, s.package_decl.name);
+      ctx.package_cpp[s.package_decl.name] = "Pkg_" + s.package_decl.name;
+      continue;
+    }
+    if (s.kind == Stmt::Kind::Import) {
+      auto pit = ctx.package_cpp.find(s.import_name);
+      if (pit == ctx.package_cpp.end()) {
+        throw std::runtime_error("import of unknown package " + s.import_name);
+      }
+      const PackageInfo& pkg = ctx.packages[pit->second];
+      for (const auto& kv : pkg.classes) {
+        ImportBinding b;
+        b.kind = ImportKind::Class;
+        b.cpp = kv.second;
+        ctx.imports[kv.first] = b;
+      }
+      for (const auto& kv : pkg.funcs) {
+        ImportBinding b;
+        b.kind = ImportKind::Func;
+        b.cpp = pkg.cpp_name;
+        b.member = kv.first;
+        b.arity = kv.second->params.size();
+        ctx.imports[kv.first] = b;
+      }
+      for (const auto& kv : pkg.packages) {
+        ImportBinding b;
+        b.kind = ImportKind::Package;
+        b.cpp = kv.second;
+        ctx.imports[kv.first] = b;
+      }
       continue;
     }
     if (s.kind != Stmt::Kind::Class) {
@@ -1338,6 +1488,130 @@ collect_classes(Ctx& ctx, const Program& program)
       p = it->second.decl->parent;
     }
   }
+}
+
+void
+emit_package(Ctx& ctx, const PackageInfo& pkg)
+{
+  const std::string& name = pkg.cpp_name;
+  // Nested packages first
+  for (const auto& kv : pkg.packages) {
+    emit_package(ctx, ctx.packages.at(kv.second));
+  }
+  // Classes owned by this package
+  for (const auto& kv : pkg.classes) {
+    const ClassInfo& ci = ctx.classes.at(kv.second);
+    emit_class(ctx, *ci.decl, kv.second);
+  }
+
+  ctx.out << "struct " << name << "_ {\n  IsaPtr isa_;\n";
+  for (const auto& kv : pkg.classes) {
+    ctx.out << "  id " << kv.first << ";\n";
+  }
+  for (const auto& kv : pkg.packages) {
+    ctx.out << "  id " << kv.first << ";\n";
+  }
+  ctx.out << "};\n";
+  ctx.out << "static " << name << "_ g_" << name << ";\n";
+  ctx.out << "static VTable* " << name << "_vtable = nullptr;\n";
+  ctx.out << "static bool g_" << name << "_inited = false;\n\n";
+
+  for (const auto& kv : pkg.classes) {
+    ctx.out << "static id " << name << "__" << mangle_getter(kv.first)
+            << "(id self, int selector);\n";
+  }
+  for (const auto& kv : pkg.packages) {
+    ctx.out << "static id " << name << "__" << mangle_getter(kv.first)
+            << "(id self, int selector);\n";
+  }
+  for (const auto& kv : pkg.funcs) {
+    const std::string mangled = mangle_method(kv.first, kv.second->params.size());
+    ctx.out << "static id " << name << "__" << mangled << "(id self, int selector";
+    for (size_t i = 0; i < kv.second->params.size(); ++i) {
+      ctx.out << ", id p" << i;
+    }
+    ctx.out << ");\n";
+  }
+  ctx.out << "\n";
+
+  // Getters (layouts stay in out; methods deferred)
+  for (const auto& kv : pkg.classes) {
+    ctx.out << "static id\n" << name << "__" << mangle_getter(kv.first)
+            << "(id self, int selector)\n{\n  (void)selector;\n";
+    ctx.out << "  return body<" << name << "_>(self)->" << kv.first << ";\n}\n\n";
+  }
+  for (const auto& kv : pkg.packages) {
+    ctx.out << "static id\n" << name << "__" << mangle_getter(kv.first)
+            << "(id self, int selector)\n{\n  (void)selector;\n";
+    ctx.out << "  return body<" << name << "_>(self)->" << kv.first << ";\n}\n\n";
+  }
+
+  std::ostringstream saved_out;
+  saved_out << ctx.out.str();
+  ctx.out.str("");
+  ctx.out.clear();
+
+  for (const auto& kv : pkg.funcs) {
+    const FuncDecl& f = *kv.second;
+    const std::string mangled = mangle_method(f.name, f.params.size());
+    ctx.out << "static id\n" << name << "__" << mangled << "(id self, int selector";
+    for (size_t i = 0; i < f.params.size(); ++i) {
+      ctx.out << ", id " << f.params[i];
+    }
+    ctx.out << ")\n{\n  (void)selector;\n  (void)self;\n";
+    ctx.current_class = nullptr;
+    ctx.env_params = ctx.toplevel_vars;
+    for (const std::string& p : f.params) {
+      ctx.env_params.push_back(p);
+    }
+    const std::string tmp = ctx.fresh("t");
+    ctx.out << "  id " << tmp << ";\n";
+    emit_body(ctx, f.body, tmp, false);
+    ctx.env_params.clear();
+    ctx.out << "}\n\n";
+  }
+
+  ctx.out << "static void\nensure_" << name << "()\n{\n";
+  ctx.out << "  if (g_" << name << "_inited) {\n    return;\n  }\n";
+  for (const auto& kv : pkg.packages) {
+    ctx.out << "  ensure_" << kv.second << "();\n";
+  }
+  for (const auto& kv : pkg.classes) {
+    ctx.out << "  ensure_" << kv.second << "();\n";
+  }
+  ctx.out << "  " << name << "_vtable = vtable_create();\n";
+  ctx.out << "  zefc_set_isa(&g_" << name << ", " << name << "_vtable);\n";
+  for (const auto& kv : pkg.classes) {
+    ctx.out << "  field_register_get(" << name << "_vtable, selector_intern(\""
+            << mangle_getter(kv.first) << "\"), offsetof(" << name << "_, " << kv.first
+            << "));\n";
+    ctx.out << "  vtable_set(" << name << "_vtable, selector_intern(\""
+            << mangle_getter(kv.first) << "\"), " << name << "__" << mangle_getter(kv.first)
+            << ");\n";
+    ctx.out << "  g_" << name << "." << kv.first << " = as_id(&g_" << kv.second
+            << "Class);\n";
+  }
+  for (const auto& kv : pkg.packages) {
+    ctx.out << "  field_register_get(" << name << "_vtable, selector_intern(\""
+            << mangle_getter(kv.first) << "\"), offsetof(" << name << "_, " << kv.first
+            << "));\n";
+    ctx.out << "  vtable_set(" << name << "_vtable, selector_intern(\""
+            << mangle_getter(kv.first) << "\"), " << name << "__" << mangle_getter(kv.first)
+            << ");\n";
+    ctx.out << "  g_" << name << "." << kv.first << " = as_id(&g_" << kv.second << ");\n";
+  }
+  for (const auto& kv : pkg.funcs) {
+    const std::string mangled = mangle_method(kv.first, kv.second->params.size());
+    ctx.out << "  vtable_set(" << name << "_vtable, selector_intern(\"" << mangled
+            << "\"), " << name << "__" << mangled << ");\n";
+  }
+  ctx.out << "  g_" << name << "_inited = true;\n";
+  ctx.out << "}\n\n";
+
+  ctx.class_methods << ctx.out.str();
+  ctx.out.str("");
+  ctx.out.clear();
+  ctx.out << saved_out.str();
 }
 
 void
@@ -1782,6 +2056,14 @@ codegen_cpp(const Program& program, const std::string& source_path)
       emit_class(ctx, s.class_decl, s.class_decl.name);
     }
   }
+  {
+    std::unordered_set<std::string> emitted_pkgs;
+    for (const auto& kv : ctx.package_cpp) {
+      if (emitted_pkgs.insert(kv.second).second) {
+        emit_package(ctx, ctx.packages.at(kv.second));
+      }
+    }
+  }
 
   // Emit top-level functions into a buffer so closure prelude can be placed first.
   std::ostringstream funcs_out;
@@ -1862,6 +2144,9 @@ codegen_cpp(const Program& program, const std::string& source_path)
     ctx.out.str("");
     ctx.out.clear();
     ctx.out << "  runtime_package_init();\n";
+    for (const auto& kv : ctx.package_cpp) {
+      ctx.out << "  ensure_" << kv.second << "();\n";
+    }
     for (const auto& kv : ctx.classes) {
       ctx.out << "  ensure_" << kv.first << "();\n";
     }
@@ -1880,6 +2165,15 @@ codegen_cpp(const Program& program, const std::string& source_path)
         // Bare function name → call
         if (s.expr->kind == Expr::Kind::Ident && ctx.functions.count(s.expr->text)) {
           ctx.out << "  (void)fn_" << s.expr->text << "();\n";
+          continue;
+        }
+        if (s.expr->kind == Expr::Kind::Ident && ctx.imports.count(s.expr->text) &&
+            ctx.imports[s.expr->text].kind == ImportKind::Func &&
+            ctx.imports[s.expr->text].arity == 0) {
+          const ImportBinding& b = ctx.imports[s.expr->text];
+          ctx.out << "  (void)" << b.cpp << "__" << mangle_method(b.member, 0)
+                  << "(as_id(&g_" << b.cpp << "), " << sel_expr(mangle_method(b.member, 0))
+                  << ");\n";
           continue;
         }
         const std::string tmp = ctx.fresh("t");

@@ -98,12 +98,28 @@ struct FuncDecl {
   std::vector<BlockItem> body;
 };
 
+struct PackageDecl {
+  std::string name;
+  std::vector<std::unique_ptr<ClassDecl>> classes;
+  std::vector<FuncDecl> funcs;
+  std::vector<std::unique_ptr<PackageDecl>> packages;
+
+  PackageDecl();
+  ~PackageDecl();
+  PackageDecl(PackageDecl&&) noexcept;
+  PackageDecl& operator=(PackageDecl&&) noexcept;
+  PackageDecl(const PackageDecl&) = delete;
+  PackageDecl& operator=(const PackageDecl&) = delete;
+};
+
 struct Stmt {
-  enum class Kind { Class, Expr, VarDecl, Func } kind;
+  enum class Kind { Class, Expr, VarDecl, Func, Package, Import } kind;
   ClassDecl class_decl;
   FuncDecl func_decl;
+  PackageDecl package_decl;
   ExprPtr expr;
-  std::string var_name;
+  std::string var_name;    // VarDecl
+  std::string import_name; // Import
 };
 
 struct Program {

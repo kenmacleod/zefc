@@ -129,6 +129,10 @@ Lexer::lex_one()
       t.kind = TokKind::KwContinue;
     } else if (id == "return") {
       t.kind = TokKind::KwReturn;
+    } else if (id == "package") {
+      t.kind = TokKind::KwPackage;
+    } else if (id == "import") {
+      t.kind = TokKind::KwImport;
     } else {
       t.kind = TokKind::Ident;
     }

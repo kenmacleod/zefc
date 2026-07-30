@@ -22,6 +22,7 @@ private:
 
   Stmt parse_stmt();
   ClassDecl parse_class();
+  PackageDecl parse_package();
   Method parse_method();
   FuncDecl parse_func();
   std::vector<BlockItem> parse_method_body();
