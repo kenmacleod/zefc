@@ -1,0 +1,233 @@
+#include "parse.hpp"
+
+#include <stdexcept>
+
+namespace zefc {
+namespace compiler {
+
+Parser::Parser(Lexer lex)
+  : lex_(std::move(lex))
+{
+}
+
+Token
+Parser::peek()
+{
+  return lex_.peek();
+}
+
+Token
+Parser::next()
+{
+  return lex_.next();
+}
+
+bool
+Parser::check(TokKind k)
+{
+  return peek().kind == k;
+}
+
+Token
+Parser::expect(TokKind k, const char* what)
+{
+  Token t = next();
+  if (t.kind != k) {
+    throw std::runtime_error(std::string("expected ") + what + " at line " +
+                             std::to_string(t.line));
+  }
+  return t;
+}
+
+Program
+Parser::parse_program()
+{
+  Program p;
+  while (!check(TokKind::Eof)) {
+    p.stmts.push_back(parse_stmt());
+  }
+  return p;
+}
+
+Stmt
+Parser::parse_stmt()
+{
+  if (check(TokKind::KwClass)) {
+    Stmt s;
+    s.kind = Stmt::Kind::Class;
+    s.class_decl = parse_class();
+    return s;
+  }
+  Stmt s;
+  s.kind = Stmt::Kind::Expr;
+  s.expr = parse_expr();
+  return s;
+}
+
+ClassDecl
+Parser::parse_class()
+{
+  expect(TokKind::KwClass, "class");
+  ClassDecl c;
+  c.name = expect(TokKind::Ident, "class name").text;
+  expect(TokKind::LBrace, "{");
+  while (!check(TokKind::RBrace) && !check(TokKind::Eof)) {
+    if (check(TokKind::KwReadable) || check(TokKind::KwAccessible)) {
+      Field f;
+      if (check(TokKind::KwReadable)) {
+        next();
+        f.readable = true;
+      } else {
+        next();
+        f.accessible = true;
+        f.readable = true;
+      }
+      f.name = expect(TokKind::Ident, "field name").text;
+      c.fields.push_back(std::move(f));
+    } else if (check(TokKind::KwFn)) {
+      c.methods.push_back(parse_method());
+    } else {
+      Token t = peek();
+      throw std::runtime_error("unexpected token in class body at line " +
+                               std::to_string(t.line));
+    }
+  }
+  expect(TokKind::RBrace, "}");
+  return c;
+}
+
+Method
+Parser::parse_method()
+{
+  expect(TokKind::KwFn, "fn");
+  Method m;
+  // fn name(args) body  |  fn (args) body  |  fn name body
+  if (check(TokKind::Ident)) {
+    m.name = next().text;
+  }
+  if (check(TokKind::LParen)) {
+    next();
+    if (!check(TokKind::RParen)) {
+      m.params.push_back(expect(TokKind::Ident, "parameter").text);
+      while (check(TokKind::Comma)) {
+        next();
+        m.params.push_back(expect(TokKind::Ident, "parameter").text);
+      }
+    }
+    expect(TokKind::RParen, ")");
+  }
+  m.body = parse_expr();
+  return m;
+}
+
+ExprPtr
+Parser::parse_expr()
+{
+  return parse_assign();
+}
+
+ExprPtr
+Parser::parse_assign()
+{
+  ExprPtr e = parse_add();
+  if (check(TokKind::Eq)) {
+    next();
+    auto a = std::make_unique<Expr>();
+    a->kind = Expr::Kind::Assign;
+    a->lhs = std::move(e);
+    a->rhs = parse_assign();
+    return a;
+  }
+  return e;
+}
+
+ExprPtr
+Parser::parse_add()
+{
+  ExprPtr e = parse_postfix();
+  while (check(TokKind::Plus)) {
+    next();
+    auto b = std::make_unique<Expr>();
+    b->kind = Expr::Kind::Binary;
+    b->text = "+";
+    b->lhs = std::move(e);
+    b->rhs = parse_postfix();
+    e = std::move(b);
+  }
+  return e;
+}
+
+ExprPtr
+Parser::parse_postfix()
+{
+  ExprPtr e = parse_primary();
+  for (;;) {
+    if (check(TokKind::Dot)) {
+      next();
+      auto d = std::make_unique<Expr>();
+      d->kind = Expr::Kind::Dot;
+      d->lhs = std::move(e);
+      d->text = expect(TokKind::Ident, "member name").text;
+      e = std::move(d);
+    } else if (check(TokKind::LParen)) {
+      auto c = std::make_unique<Expr>();
+      c->kind = Expr::Kind::Call;
+      c->lhs = std::move(e);
+      c->args = parse_arg_list();
+      e = std::move(c);
+    } else {
+      break;
+    }
+  }
+  return e;
+}
+
+ExprPtr
+Parser::parse_primary()
+{
+  if (check(TokKind::Ident)) {
+    auto e = std::make_unique<Expr>();
+    e->kind = Expr::Kind::Ident;
+    e->text = next().text;
+    return e;
+  }
+  if (check(TokKind::String)) {
+    auto e = std::make_unique<Expr>();
+    e->kind = Expr::Kind::String;
+    e->text = next().text;
+    return e;
+  }
+  if (check(TokKind::Number)) {
+    auto e = std::make_unique<Expr>();
+    e->kind = Expr::Kind::Number;
+    e->text = next().text;
+    return e;
+  }
+  if (check(TokKind::LParen)) {
+    next();
+    ExprPtr e = parse_expr();
+    expect(TokKind::RParen, ")");
+    return e;
+  }
+  Token t = peek();
+  throw std::runtime_error("expected expression at line " + std::to_string(t.line));
+}
+
+std::vector<ExprPtr>
+Parser::parse_arg_list()
+{
+  expect(TokKind::LParen, "(");
+  std::vector<ExprPtr> args;
+  if (!check(TokKind::RParen)) {
+    args.push_back(parse_expr());
+    while (check(TokKind::Comma)) {
+      next();
+      args.push_back(parse_expr());
+    }
+  }
+  expect(TokKind::RParen, ")");
+  return args;
+}
+
+} // namespace compiler
+} // namespace zefc

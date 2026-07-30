@@ -32,4 +32,5 @@ zefc_cpp_args = ['-DZEFC_OBJECT_DISPATCH=@0@'.format(zefc_od)]
 message('object_dispatch=@0@ (ZEFC_OBJECT_DISPATCH=@1@)'.format(object_dispatch, zefc_od))
 
 subdir('runtime')
+subdir('compiler')
 subdir('test/smoke')
