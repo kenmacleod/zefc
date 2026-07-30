@@ -156,6 +156,18 @@ int_runtime_init()
   selector_sites_patch();
 }
 
+bool
+id_is_int_impl(id v)
+{
+  if (id_is_int32(v)) {
+    return true;
+  }
+  if (!id_is_object(v) || !Int_vtable) {
+    return false;
+  }
+  return zefc_vtable_of(v) == Int_vtable;
+}
+
 } // namespace runtime
 
 id
@@ -168,6 +180,12 @@ long long
 Int__to_i64(id int_obj)
 {
   return runtime::Int__to_i64_impl(int_obj);
+}
+
+bool
+id_is_int(id v)
+{
+  return runtime::id_is_int_impl(v);
 }
 
 id

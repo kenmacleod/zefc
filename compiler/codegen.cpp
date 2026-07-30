@@ -168,6 +168,8 @@ struct Ctx {
   const ClassInfo* current_class = nullptr;
   bool in_static_method = false;
   std::vector<std::string> env_params;
+  // `my` locals (and params) that shadow instance fields for the current method.
+  std::unordered_set<std::string> local_vars;
   // Nested class names in scope → capture field names on the class object.
   std::unordered_map<std::string, std::vector<std::string>> local_classes;
   std::unordered_set<std::string> nested_emitted;
@@ -219,7 +221,8 @@ is_field(const Ctx& ctx, const std::string& name)
   if (!ctx.current_class) {
     return false;
   }
-  if (ctx.current_class->param_names.count(name)) {
+  // Params and `my` locals shadow instance fields (e.g. traverse's `my left`).
+  if (ctx.current_class->param_names.count(name) || ctx.local_vars.count(name)) {
     return false;
   }
   return ctx.current_class->field_names.count(name);
@@ -490,8 +493,10 @@ emit_lambda(Ctx& ctx, const Expr& e, const std::string& dst)
   body_ctx.current_class = &fake_info;
   // Nested lambdas may capture outer params + already-captured env.
   body_ctx.env_params = ctx.env_params;
+  body_ctx.local_vars.clear();
   for (const std::string& p : e.params) {
     body_ctx.env_params.push_back(p);
+    body_ctx.local_vars.insert(p);
   }
   body_ctx.out << "static id\n" << cname << "__call_o(id self, int selector";
   for (size_t i = 0; i < e.params.size(); ++i) {
@@ -571,6 +576,11 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
       // Bare `super` → parent zero-arg init on same object.
       const std::string& parent = ctx.current_class->decl->parent;
       ctx.out << "  " << dst << " = " << parent << "__init(self, 0);\n";
+      return;
+    }
+    // Locals/params shadow fields and zero-arg getters (`my left` vs `fn left`).
+    if (ctx.local_vars.count(e.text)) {
+      ctx.out << "  " << dst << " = " << local_sym(e.text) << ";\n";
       return;
     }
     if (is_field(ctx, e.text)) {
@@ -766,13 +776,18 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
       ctx.out << "  " << dst << " = ZEFC_SEND1(" << a << ", ZEFC_SITE(\"mod_o\"), " << b
               << ");\n";
     } else if (op == "==") {
+      // Doubles: numeric. Ints (immediate or heap): numeric. Else: identity.
       ctx.out << "  " << dst << " = Int__from_i64((id_is_double(" << a
-              << ") ? (Double__to_f64(" << a << ") == Double__to_f64(" << b << ")) : (" << a
-              << " == " << b << ")) ? 1 : 0);\n";
+              << ") ? (Double__to_f64(" << a << ") == Double__to_f64(" << b
+              << ")) : ((id_is_int(" << a << ") && id_is_int(" << b
+              << ")) ? (Int__to_i64(" << a << ") == Int__to_i64(" << b << ")) : (" << a
+              << " == " << b << "))) ? 1 : 0);\n";
     } else if (op == "!=") {
       ctx.out << "  " << dst << " = Int__from_i64((id_is_double(" << a
-              << ") ? (Double__to_f64(" << a << ") != Double__to_f64(" << b << ")) : (" << a
-              << " != " << b << ")) ? 1 : 0);\n";
+              << ") ? (Double__to_f64(" << a << ") != Double__to_f64(" << b
+              << ")) : ((id_is_int(" << a << ") && id_is_int(" << b
+              << ")) ? (Int__to_i64(" << a << ") != Int__to_i64(" << b << ")) : (" << a
+              << " != " << b << "))) ? 1 : 0);\n";
     } else if (op == "<") {
       ctx.out << "  " << dst << " = Int__from_i64((id_is_double(" << a
               << ") ? (Double__to_f64(" << a << ") < Double__to_f64(" << b
@@ -1583,6 +1598,7 @@ emit_block_item(Ctx& ctx, const BlockItem& item, const std::string* result_dst)
       ctx.out << " = null_id();\n";
     }
     ctx.env_params.push_back(item.var_name);
+    ctx.local_vars.insert(item.var_name);
     if (result_dst) {
       ctx.out << "  " << *result_dst << " = " << local_sym(item.var_name) << ";\n";
     }
@@ -1969,8 +1985,10 @@ emit_package(Ctx& ctx, const PackageInfo& pkg)
     }
     const std::string tmp = ctx.fresh("t");
     ctx.out << "  id " << tmp << ";\n";
+    ctx.local_vars.clear();
     emit_body(ctx, *pkg.ctor_body, tmp, true);
     ctx.env_params.clear();
+    ctx.local_vars.clear();
     ctx.current_class = nullptr;
     ctx.out << "}\n\n";
   }
@@ -1990,16 +2008,19 @@ emit_package(Ctx& ctx, const PackageInfo& pkg)
       fake_info.param_names.insert(p);
     }
     ctx.env_params = ctx.toplevel_vars;
+    ctx.local_vars.clear();
     for (const Field* fild : pkg.fields) {
       ctx.env_params.push_back(fild->name);
     }
     for (const std::string& p : f.params) {
       ctx.env_params.push_back(p);
+      ctx.local_vars.insert(p);
     }
     const std::string tmp = ctx.fresh("t");
     ctx.out << "  id " << tmp << ";\n";
     emit_body(ctx, f.body, tmp, false);
     ctx.env_params.clear();
+    ctx.local_vars.clear();
     ctx.current_class = nullptr;
     ctx.out << "}\n\n";
   }
@@ -2261,6 +2282,7 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
     }
     ctx.out << ")\n{\n  (void)selector;\n";
     ctx.env_params.clear();
+    ctx.local_vars.clear();
     for (const Field& f : c.fields) {
       if (!f.is_static) {
         ctx.env_params.push_back(f.name);
@@ -2294,6 +2316,7 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
       for (const std::string& p : m->params) {
         info->param_names.insert(p);
         ctx.env_params.push_back(p);
+        ctx.local_vars.insert(p);
       }
       const std::string tmp = ctx.fresh("t");
       ctx.out << "  id " << tmp << ";\n";
@@ -2302,6 +2325,7 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
       ctx.out << "  return self;\n";
     }
     ctx.env_params.clear();
+    ctx.local_vars.clear();
     ctx.out << "}\n\n";
 
     ctx.out << "static id\n" << name << "__new(id, int selector";
@@ -2342,6 +2366,7 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
       ctx.out << ")\n{\n  (void)selector;\n";
       ctx.in_static_method = m.is_static;
       ctx.env_params.clear();
+      ctx.local_vars.clear();
       for (const Field& f : c.fields) {
         if (!f.is_static) {
           ctx.env_params.push_back(f.name);
@@ -2349,11 +2374,13 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
       }
       for (const std::string& p : m.params) {
         ctx.env_params.push_back(p);
+        ctx.local_vars.insert(p);
       }
       const std::string tmp = ctx.fresh("t");
       ctx.out << "  id " << tmp << ";\n";
       emit_body(ctx, m.body, tmp, false);
       ctx.env_params.clear();
+      ctx.local_vars.clear();
       ctx.in_static_method = false;
       ctx.out << "}\n\n";
     }
@@ -2594,10 +2621,12 @@ codegen_cpp(const Program& program, const std::string& source_path)
       }
       ctx.current_class = nullptr;
       ctx.env_params = ctx.toplevel_vars;
+      ctx.local_vars.clear();
       for (const std::string& p : cpp_params) {
         // Only non-shadowed names (original names) are usable in the body.
         if (p.find("__") == std::string::npos) {
           ctx.env_params.push_back(p);
+          ctx.local_vars.insert(p);
         }
       }
       const std::string tmp = ctx.fresh("t");
@@ -2605,6 +2634,7 @@ codegen_cpp(const Program& program, const std::string& source_path)
       emit_line(ctx, f.line);
       emit_body(ctx, f.body, tmp, false);
       ctx.env_params.clear();
+      ctx.local_vars.clear();
       ctx.out << "}\n\n";
     }
     funcs_out << ctx.out.str();
