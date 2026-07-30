@@ -26,6 +26,7 @@ enum class TokKind {
   Dot,
   Comma,
   Plus,
+  PlusEq,
   Eq,
   EqEq,
   Colon,

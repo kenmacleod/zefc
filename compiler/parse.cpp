@@ -208,10 +208,12 @@ ExprPtr
 Parser::parse_assign()
 {
   ExprPtr e = parse_equality();
-  if (check(TokKind::Eq)) {
+  if (check(TokKind::Eq) || check(TokKind::PlusEq)) {
+    const bool plus_eq = check(TokKind::PlusEq);
     next();
     auto a = std::make_unique<Expr>();
     a->kind = Expr::Kind::Assign;
+    a->text = plus_eq ? "+=" : "=";
     a->lhs = std::move(e);
     a->rhs = parse_assign();
     return a;

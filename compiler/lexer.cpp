@@ -147,7 +147,12 @@ Lexer::lex_one()
     t.kind = TokKind::Comma;
     break;
   case '+':
-    t.kind = TokKind::Plus;
+    if (ch() == '=') {
+      get();
+      t.kind = TokKind::PlusEq;
+    } else {
+      t.kind = TokKind::Plus;
+    }
     break;
   case '=':
     if (ch() == '=') {

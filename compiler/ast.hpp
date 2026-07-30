@@ -22,7 +22,7 @@ struct Expr {
     Lambda,
   } kind;
 
-  std::string text;
+  std::string text; // Ident / String / Number / Dot field / Binary op / Assign "+="
   ExprPtr lhs;
   ExprPtr rhs;
   std::vector<ExprPtr> args;

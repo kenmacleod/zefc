@@ -186,12 +186,22 @@ collect_free(const Expr& e, const std::unordered_set<std::string>& locals,
     }
     break;
   case Expr::Kind::Lambda: {
-    std::unordered_set<std::string> inner = locals;
+    // Nested lambda: free vars relative to nested_env = env ∪ locals.
+    // Enclosing captures only those nested frees that are in env (not locals).
+    std::unordered_set<std::string> nested_locals;
     for (const std::string& p : e.params) {
-      inner.insert(p);
+      nested_locals.insert(p);
     }
+    std::vector<std::string> nested_env = env;
+    for (const std::string& l : locals) {
+      nested_env.push_back(l);
+    }
+    std::vector<std::string> nested_caps;
     for (const auto& s : e.body) {
-      collect_free(*s, inner, env, captures);
+      collect_free(*s, nested_locals, nested_env, nested_caps);
+    }
+    for (const std::string& c : nested_caps) {
+      add_cap(c);
     }
     break;
   }
@@ -245,6 +255,8 @@ emit_lambda(Ctx& ctx, const Expr& e, const std::string& dst)
     fake_info.param_names.insert(p);
   }
   body_ctx.current_class = &fake_info;
+  // Nested lambdas may capture outer params + already-captured env.
+  body_ctx.env_params = ctx.env_params;
   for (const std::string& p : e.params) {
     body_ctx.env_params.push_back(p);
   }
@@ -259,8 +271,9 @@ emit_lambda(Ctx& ctx, const Expr& e, const std::string& dst)
   body_ctx.out << "}\n\n";
   ctx.tmp = body_ctx.tmp;
   ctx.closure_id = body_ctx.closure_id;
-  ctx.prelude << body_ctx.out.str();
+  // Nested closures first, then this call method (call body may reference them).
   ctx.prelude << body_ctx.prelude.str();
+  ctx.prelude << body_ctx.out.str();
 
   ctx.out << "  if (!" << cname << "_vtable) {\n";
   ctx.out << "    " << cname << "_vtable = vtable_create();\n";
@@ -273,7 +286,12 @@ emit_lambda(Ctx& ctx, const Expr& e, const std::string& dst)
   ctx.out << "    " << cname << "_* _c = alloc<" << cname << "_>();\n";
   ctx.out << "    zefc_set_isa(_c, " << cname << "_vtable);\n";
   for (const std::string& cap : captures) {
-    ctx.out << "    _c->" << cap << " = " << cap << ";\n";
+    if (is_field(ctx, cap)) {
+      ctx.out << "    _c->" << cap << " = body<" << ctx.current_class->decl->name << "_>(self)->"
+              << cap << ";\n";
+    } else {
+      ctx.out << "    _c->" << cap << " = " << cap << ";\n";
+    }
   }
   ctx.out << "    " << dst << " = as_id(_c);\n";
   ctx.out << "  }\n";
@@ -288,8 +306,9 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
       if (!ctx.current_class || ctx.current_class->decl->parent.empty()) {
         throw std::runtime_error("super outside subclass");
       }
-      // Empty parent ctor: no-op on already-allocated self.
-      ctx.out << "  " << dst << " = null_id();\n";
+      // Bare `super` → parent zero-arg init on same object.
+      const std::string& parent = ctx.current_class->decl->parent;
+      ctx.out << "  " << dst << " = " << parent << "__init(self, 0);\n";
       return;
     }
     if (is_field(ctx, e.text)) {
@@ -349,9 +368,31 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
     return;
   }
   case Expr::Kind::Assign: {
+    const bool plus_eq = (e.text == "+=");
     const std::string rhs = ctx.fresh("t");
     ctx.out << "  id " << rhs << ";\n";
-    emit_expr(ctx, *e.rhs, rhs);
+    if (plus_eq) {
+      // lhs += rhs  →  lhs = lhs + rhs
+      const std::string cur = ctx.fresh("t");
+      const std::string addend = ctx.fresh("t");
+      ctx.out << "  id " << cur << ";\n  id " << addend << ";\n";
+      if (e.lhs && e.lhs->kind == Expr::Kind::Ident && is_field(ctx, e.lhs->text)) {
+        const std::string& cls = ctx.current_class->decl->name;
+        ctx.out << "  " << cur << " = body<" << cls << "_>(self)->" << e.lhs->text << ";\n";
+      } else if (e.lhs && e.lhs->kind == Expr::Kind::Ident) {
+        ctx.out << "  " << cur << " = " << e.lhs->text << ";\n";
+      } else if (e.lhs && e.lhs->kind == Expr::Kind::Dot) {
+        // Only instance/static field get via getter or direct — reuse emit_expr on lhs
+        emit_expr(ctx, *e.lhs, cur);
+      } else {
+        throw std::runtime_error("+= target must be an identifier or field");
+      }
+      emit_expr(ctx, *e.rhs, addend);
+      ctx.out << "  " << rhs << " = ZEFC_SEND1(" << cur << ", ZEFC_SEL_add_o, " << addend
+              << ");\n";
+    } else {
+      emit_expr(ctx, *e.rhs, rhs);
+    }
     if (e.lhs && e.lhs->kind == Expr::Kind::Dot) {
       // ClassName.field = rhs (static)
       if (e.lhs->lhs && e.lhs->lhs->kind == Expr::Kind::Ident &&
@@ -391,6 +432,18 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
     }
     if (e.lhs && e.lhs->kind == Expr::Kind::Ident) {
       const std::string& callee = e.lhs->text;
+      if (callee == "super") {
+        if (!ctx.current_class || ctx.current_class->decl->parent.empty()) {
+          throw std::runtime_error("super(...) outside subclass");
+        }
+        const std::string& parent = ctx.current_class->decl->parent;
+        ctx.out << "  " << dst << " = " << parent << "__init(self, 0";
+        for (const std::string& a : arg_tmps) {
+          ctx.out << ", " << a;
+        }
+        ctx.out << ");\n";
+        return;
+      }
       if (callee == "println") {
         if (arg_tmps.size() != 1) {
           throw std::runtime_error("println expects 1 argument");
@@ -434,15 +487,30 @@ void
 emit_expr_top(Ctx& ctx, const Expr& e, const std::string& dst)
 {
   if (e.kind == Expr::Kind::Call && e.lhs && e.lhs->kind == Expr::Kind::Dot) {
-    const std::string recv = ctx.fresh("t");
-    ctx.out << "  id " << recv << ";\n";
-    emit_expr(ctx, *e.lhs->lhs, recv);
     std::vector<std::string> arg_tmps;
     for (size_t i = 0; i < e.args.size(); ++i) {
       arg_tmps.push_back(ctx.fresh("t"));
       ctx.out << "  id " << arg_tmps.back() << ";\n";
       emit_expr(ctx, *e.args[i], arg_tmps.back());
     }
+    // super.method(args) → direct parent call
+    if (e.lhs->lhs && e.lhs->lhs->kind == Expr::Kind::Ident && e.lhs->lhs->text == "super") {
+      if (!ctx.current_class || ctx.current_class->decl->parent.empty()) {
+        throw std::runtime_error("super.method outside subclass");
+      }
+      const std::string& parent = ctx.current_class->decl->parent;
+      const std::string mangled = mangle_method(e.lhs->text, e.args.size());
+      ctx.out << "  " << dst << " = " << parent << "__" << mangled << "(self, "
+              << sel_expr(mangled);
+      for (const std::string& a : arg_tmps) {
+        ctx.out << ", " << a;
+      }
+      ctx.out << ");\n";
+      return;
+    }
+    const std::string recv = ctx.fresh("t");
+    ctx.out << "  id " << recv << ";\n";
+    emit_expr(ctx, *e.lhs->lhs, recv);
     emit_send(ctx, recv, mangle_method(e.lhs->text, e.args.size()), arg_tmps, dst);
     return;
   }
@@ -598,6 +666,11 @@ emit_class(Ctx& ctx, const ClassDecl& c)
   for (const Method& m : c.methods) {
     if (m.name.empty()) {
       has_ctor = true;
+      ctx.out << "static id " << name << "__init(id self, int selector";
+      for (size_t i = 0; i < m.params.size(); ++i) {
+        ctx.out << ", id p" << i;
+      }
+      ctx.out << ");\n";
       ctx.out << "static id " << name << "__new(id, int selector";
       for (size_t i = 0; i < m.params.size(); ++i) {
         ctx.out << ", id p" << i;
@@ -614,6 +687,7 @@ emit_class(Ctx& ctx, const ClassDecl& c)
   }
   if (!has_ctor) {
     // synthesize zero-arg ctor for field defaults
+    ctx.out << "static id " << name << "__init(id self, int selector);\n";
     ctx.out << "static id " << name << "__new(id, int selector);\n";
   }
   for (const Field& f : c.fields) {
@@ -636,18 +710,15 @@ emit_class(Ctx& ctx, const ClassDecl& c)
   ctx.current_class = info;
 
   auto emit_ctor = [&](const Method* m) {
-    const size_t nparams = m ? m->params.size() : 0;
-    ctx.out << "static id\n" << name << "__new(id, int selector";
+    // __init: run on an already-allocated `self` (used by `super(...)`).
+    ctx.out << "static id\n" << name << "__init(id self, int selector";
     if (m) {
       for (size_t i = 0; i < m->params.size(); ++i) {
         ctx.out << ", id " << m->params[i];
       }
     }
     ctx.out << ")\n{\n  (void)selector;\n";
-    ctx.out << "  " << name << "_* self_b = alloc<" << name << "_>();\n";
-    ctx.out << "  id self = as_id(self_b);\n";
-    ctx.out << "  zefc_set_isa(self_b, " << name << "_vtable);\n";
-    // instance field defaults
+    // instance field defaults (own fields only)
     for (const Field& f : c.fields) {
       if (f.is_static || !f.init) {
         continue;
@@ -655,7 +726,7 @@ emit_class(Ctx& ctx, const ClassDecl& c)
       const std::string t = ctx.fresh("t");
       ctx.out << "  id " << t << ";\n";
       emit_expr_top(ctx, *f.init, t);
-      ctx.out << "  self_b->" << f.name << " = " << t << ";\n";
+      ctx.out << "  body<" << name << "_>(self)->" << f.name << " = " << t << ";\n";
     }
     info->param_names.clear();
     if (m) {
@@ -669,7 +740,26 @@ emit_class(Ctx& ctx, const ClassDecl& c)
       ctx.out << "  return self;\n";
     }
     ctx.out << "}\n\n";
-    (void)nparams;
+
+    // __new: allocate + set isa + __init
+    ctx.out << "static id\n" << name << "__new(id, int selector";
+    if (m) {
+      for (size_t i = 0; i < m->params.size(); ++i) {
+        ctx.out << ", id " << m->params[i];
+      }
+    }
+    ctx.out << ")\n{\n  (void)selector;\n";
+    ctx.out << "  " << name << "_* self_b = alloc<" << name << "_>();\n";
+    ctx.out << "  id self = as_id(self_b);\n";
+    ctx.out << "  zefc_set_isa(self_b, " << name << "_vtable);\n";
+    ctx.out << "  return " << name << "__init(self, selector";
+    if (m) {
+      for (size_t i = 0; i < m->params.size(); ++i) {
+        ctx.out << ", " << m->params[i];
+      }
+    }
+    ctx.out << ");\n";
+    ctx.out << "}\n\n";
   };
 
   bool emitted_ctor = false;
@@ -847,32 +937,54 @@ codegen_cpp(const Program& program, const std::string& source_path)
   }
 
   ctx.out << ctx.prelude.str();
+  // Reset prelude; top-level `my` / expr may emit more closures into it.
+  ctx.prelude.str("");
+  ctx.prelude.clear();
   ctx.out << funcs_out.str();
 
+  // Emit main body first so any top-level lambdas land in prelude.
+  std::ostringstream main_body;
+  {
+    std::ostringstream saved;
+    saved << ctx.out.str();
+    ctx.out.str("");
+    ctx.out.clear();
+    ctx.out << "  runtime_package_init();\n";
+    for (const auto& kv : ctx.classes) {
+      ctx.out << "  ensure_" << kv.first << "();\n";
+    }
+    ctx.env_params.clear();
+    for (const Stmt& s : program.stmts) {
+      if (s.kind == Stmt::Kind::VarDecl) {
+        ctx.out << "  id " << s.var_name << ";\n";
+        ctx.current_class = nullptr;
+        // Lambdas may capture earlier top-level `my` bindings.
+        emit_expr_top(ctx, *s.expr, s.var_name);
+        ctx.env_params.push_back(s.var_name);
+      } else if (s.kind == Stmt::Kind::Expr) {
+        ctx.current_class = nullptr;
+        // Bare function name → call
+        if (s.expr->kind == Expr::Kind::Ident && ctx.functions.count(s.expr->text)) {
+          ctx.out << "  (void)fn_" << s.expr->text << "();\n";
+          continue;
+        }
+        const std::string tmp = ctx.fresh("t");
+        ctx.out << "  id " << tmp << ";\n";
+        emit_expr_top(ctx, *s.expr, tmp);
+      }
+    }
+    ctx.out << "  return 0;\n";
+    main_body << ctx.out.str();
+    ctx.out.str("");
+    ctx.out.clear();
+    ctx.out << saved.str();
+  }
+
+  ctx.out << ctx.prelude.str();
   ctx.out << "} // namespace\n\n";
   ctx.out << "int\nmain()\n{\n";
-  ctx.out << "  runtime_package_init();\n";
-  for (const auto& kv : ctx.classes) {
-    ctx.out << "  ensure_" << kv.first << "();\n";
-  }
-  for (const Stmt& s : program.stmts) {
-    if (s.kind == Stmt::Kind::VarDecl) {
-      ctx.out << "  id " << s.var_name << ";\n";
-      ctx.current_class = nullptr;
-      emit_expr_top(ctx, *s.expr, s.var_name);
-    } else if (s.kind == Stmt::Kind::Expr) {
-      ctx.current_class = nullptr;
-      // Bare function name → call
-      if (s.expr->kind == Expr::Kind::Ident && ctx.functions.count(s.expr->text)) {
-        ctx.out << "  (void)fn_" << s.expr->text << "();\n";
-        continue;
-      }
-      const std::string tmp = ctx.fresh("t");
-      ctx.out << "  id " << tmp << ";\n";
-      emit_expr_top(ctx, *s.expr, tmp);
-    }
-  }
-  ctx.out << "  return 0;\n}\n";
+  ctx.out << main_body.str();
+  ctx.out << "}\n";
   return ctx.out.str();
 }
 
