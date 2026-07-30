@@ -102,7 +102,9 @@ struct FuncInfo {
 
 struct Ctx {
   std::ostringstream out;
-  std::ostringstream prelude; // closure types/methods at namespace scope
+  std::ostringstream prelude; // closure / nested-class types at namespace scope
+  // Top-level class method bodies (emitted after prelude so lambdas resolve).
+  std::ostringstream class_methods;
   std::unordered_map<std::string, ClassInfo> classes;
   std::unordered_map<std::string, FuncInfo> functions;
   std::vector<std::string> toplevel_vars;
@@ -298,6 +300,44 @@ collect_free(const Expr& e, const std::unordered_set<std::string>& locals,
 }
 
 void
+collect_free_class(const ClassDecl& c, const std::vector<std::string>& env,
+                   std::vector<std::string>& captures)
+{
+  std::unordered_set<std::string> class_locals;
+  for (const Field& f : c.fields) {
+    class_locals.insert(f.name);
+  }
+  for (const Method& m : c.methods) {
+    if (!m.name.empty()) {
+      class_locals.insert(m.name);
+    }
+  }
+  for (const Method& m : c.methods) {
+    std::unordered_set<std::string> scan_locals = class_locals;
+    for (const std::string& p : m.params) {
+      scan_locals.insert(p);
+    }
+    for (const BlockItem& bi : m.body) {
+      if (bi.kind == BlockItem::Kind::VarDecl) {
+        if (bi.expr) {
+          collect_free(*bi.expr, scan_locals, env, captures);
+        }
+        scan_locals.insert(bi.var_name);
+      } else if (bi.kind == BlockItem::Kind::Class && bi.nested_class) {
+        collect_free_class(*bi.nested_class, env, captures);
+      } else if (bi.expr) {
+        collect_free(*bi.expr, scan_locals, env, captures);
+      }
+    }
+  }
+  for (const Field& f : c.fields) {
+    if (f.init) {
+      collect_free(*f.init, class_locals, env, captures);
+    }
+  }
+}
+
+void
 emit_lambda(Ctx& ctx, const Expr& e, const std::string& dst)
 {
   std::unordered_set<std::string> locals;
@@ -313,6 +353,8 @@ emit_lambda(Ctx& ctx, const Expr& e, const std::string& dst)
           collect_free(*item.expr, scan_locals, ctx.env_params, captures);
         }
         scan_locals.insert(item.var_name);
+      } else if (item.kind == BlockItem::Kind::Class && item.nested_class) {
+        collect_free_class(*item.nested_class, ctx.env_params, captures);
       } else if (item.expr) {
         collect_free(*item.expr, scan_locals, ctx.env_params, captures);
       }
@@ -370,6 +412,7 @@ emit_lambda(Ctx& ctx, const Expr& e, const std::string& dst)
   body_ctx.out << "}\n\n";
   ctx.tmp = body_ctx.tmp;
   ctx.closure_id = body_ctx.closure_id;
+  ctx.nested_emitted = body_ctx.nested_emitted;
   // Nested closures first, then this call method (call body may reference them).
   ctx.prelude << body_ctx.prelude.str();
   ctx.prelude << body_ctx.out.str();
@@ -860,11 +903,25 @@ emit_nested_class(Ctx& ctx, const ClassDecl& c, const std::vector<std::string>& 
 {
   const std::string& name = c.name;
 
-  // Instance + class-object layouts.
+  // Instance + class-object layouts. Captures are stored on both: class object
+  // at allocation, then copied onto the instance so methods can read them as fields.
   ctx.prelude << "struct " << name << "_ {\n  IsaPtr isa_;\n";
   for (const Field& f : c.fields) {
     if (!f.is_static) {
       ctx.prelude << "  id " << f.name << ";\n";
+    }
+  }
+  for (const std::string& cap : captures) {
+    // Avoid duplicate members if a capture shares a field name (shouldn't).
+    bool is_decl_field = false;
+    for (const Field& f : c.fields) {
+      if (!f.is_static && f.name == cap) {
+        is_decl_field = true;
+        break;
+      }
+    }
+    if (!is_decl_field) {
+      ctx.prelude << "  id " << cap << ";\n";
     }
   }
   ctx.prelude << "};\n\n";
@@ -884,6 +941,9 @@ emit_nested_class(Ctx& ctx, const ClassDecl& c, const std::vector<std::string>& 
     if (!f.is_static) {
       info.field_names.insert(f.name);
     }
+  }
+  for (const std::string& cap : captures) {
+    info.field_names.insert(cap);
   }
   for (const Method& m : c.methods) {
     if (!m.name.empty() && !m.is_static && m.params.empty()) {
@@ -962,6 +1022,10 @@ emit_nested_class(Ctx& ctx, const ClassDecl& c, const std::vector<std::string>& 
     mctx.out << "  " << name << "_* self_b = alloc<" << name << "_>();\n";
     mctx.out << "  self = as_id(self_b);\n";
     mctx.out << "  zefc_set_isa(self_b, " << name << "_vtable);\n";
+    for (const std::string& cap : captures) {
+      mctx.out << "  body<" << name << "_>(self)->" << cap << " = body<" << name
+               << "Class_>(nest_cls)->" << cap << ";\n";
+    }
     mctx.nest_capture_type = name + "Class_";
     mctx.nest_capture_self = "nest_cls";
     mctx.nest_captures.clear();
@@ -1052,39 +1116,8 @@ emit_block_item(Ctx& ctx, const BlockItem& item, const std::string* result_dst)
 {
   if (item.kind == BlockItem::Kind::Class) {
     const ClassDecl& c = *item.nested_class;
-    std::unordered_set<std::string> class_locals;
-    for (const Field& f : c.fields) {
-      class_locals.insert(f.name);
-    }
-    for (const Method& m : c.methods) {
-      if (!m.name.empty()) {
-        class_locals.insert(m.name);
-      }
-    }
     std::vector<std::string> captures;
-    for (const Method& m : c.methods) {
-      std::unordered_set<std::string> scan_locals = class_locals;
-      for (const std::string& p : m.params) {
-        scan_locals.insert(p);
-      }
-      for (const BlockItem& bi : m.body) {
-        if (bi.kind == BlockItem::Kind::VarDecl) {
-          if (bi.expr) {
-            collect_free(*bi.expr, scan_locals, ctx.env_params, captures);
-          }
-          scan_locals.insert(bi.var_name);
-        } else if (bi.kind == BlockItem::Kind::Class) {
-          // Nested-in-nested: ignore for capture scan of outer.
-        } else if (bi.expr) {
-          collect_free(*bi.expr, scan_locals, ctx.env_params, captures);
-        }
-      }
-    }
-    for (const Field& f : c.fields) {
-      if (f.init) {
-        collect_free(*f.init, class_locals, ctx.env_params, captures);
-      }
-    }
+    collect_free_class(c, ctx.env_params, captures);
     if (!ctx.nested_emitted.count(c.name)) {
       emit_nested_class(ctx, c, captures);
       ctx.nested_emitted.insert(c.name);
@@ -1338,6 +1371,12 @@ emit_class(Ctx& ctx, const ClassDecl& c)
 
   ctx.current_class = info;
 
+  // Method bodies / ensure go to class_methods so prelude (closures) can precede them.
+  std::ostringstream saved_out;
+  saved_out << ctx.out.str();
+  ctx.out.str("");
+  ctx.out.clear();
+
   auto emit_ctor = [&](const Method* m) {
     // __init: run on an already-allocated `self` (used by `super(...)`).
     ctx.out << "static id\n" << name << "__init(id self, int selector";
@@ -1347,6 +1386,12 @@ emit_class(Ctx& ctx, const ClassDecl& c)
       }
     }
     ctx.out << ")\n{\n  (void)selector;\n";
+    ctx.env_params.clear();
+    for (const Field& f : c.fields) {
+      if (!f.is_static) {
+        ctx.env_params.push_back(f.name);
+      }
+    }
     // instance field defaults (own fields only)
     for (const Field& f : c.fields) {
       if (f.is_static || !f.init) {
@@ -1361,6 +1406,7 @@ emit_class(Ctx& ctx, const ClassDecl& c)
     if (m) {
       for (const std::string& p : m->params) {
         info->param_names.insert(p);
+        ctx.env_params.push_back(p);
       }
       const std::string tmp = ctx.fresh("t");
       ctx.out << "  id " << tmp << ";\n";
@@ -1368,6 +1414,7 @@ emit_class(Ctx& ctx, const ClassDecl& c)
     } else {
       ctx.out << "  return self;\n";
     }
+    ctx.env_params.clear();
     ctx.out << "}\n\n";
 
     // __new: allocate + set isa + __init
@@ -1407,9 +1454,19 @@ emit_class(Ctx& ctx, const ClassDecl& c)
         ctx.out << ", id " << m.params[i];
       }
       ctx.out << ")\n{\n  (void)selector;\n";
+      ctx.env_params.clear();
+      for (const Field& f : c.fields) {
+        if (!f.is_static) {
+          ctx.env_params.push_back(f.name);
+        }
+      }
+      for (const std::string& p : m.params) {
+        ctx.env_params.push_back(p);
+      }
       const std::string tmp = ctx.fresh("t");
       ctx.out << "  id " << tmp << ";\n";
       emit_body(ctx, m.body, tmp, false);
+      ctx.env_params.clear();
       ctx.out << "}\n\n";
     }
   }
@@ -1512,6 +1569,11 @@ emit_class(Ctx& ctx, const ClassDecl& c)
   ctx.out << "}\n\n";
 
   ctx.current_class = nullptr;
+
+  ctx.class_methods << ctx.out.str();
+  ctx.out.str("");
+  ctx.out.clear();
+  ctx.out << saved_out.str();
 }
 
 } // namespace
@@ -1619,6 +1681,9 @@ codegen_cpp(const Program& program, const std::string& source_path)
   // Reset prelude; top-level `my` / expr may emit more closures into it.
   ctx.prelude.str("");
   ctx.prelude.clear();
+  ctx.out << ctx.class_methods.str();
+  ctx.class_methods.str("");
+  ctx.class_methods.clear();
   ctx.out << funcs_out.str();
 
   // Emit main body first so any top-level lambdas land in prelude.
