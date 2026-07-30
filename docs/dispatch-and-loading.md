@@ -24,6 +24,18 @@ This document is the contract for ZefC’s Orchard-style dispatch under dynamic 
 
 **Method IC vs pure vtable (perf switch):** Meson option `method_dispatch` (`ic` default, or `vtable`) sets `-DZEFC_METHOD_IC=1|0`. Only object `ZEFC_SEND*` changes; Double/Int32 short-circuits and field IC stay. Use two build dirs (e.g. `build-filc-o2` vs `build-filc-o2-vtable`) at the same `buildtype=debugoptimized` when comparing.
 
+### ScriptBench wall times (matched `-O2`)
+
+Machine: WSL2 x86_64, 2026-07-30. All ZefC/Zef builds `debugoptimized` (`optimization=2`). Fil-C++ 0.678; ZefC g++ = system g++. Five warm runs; table shows approximate medians. Field IC on in all ZefC columns. Zef has no g++ build (Fil-C only).
+
+| Bench | ZefC Fil-C ic | ZefC Fil-C vtable | ZefC g++ ic | ZefC g++ vtable | Zef Fil-C |
+|-------|---------------|-------------------|-------------|-----------------|-----------|
+| nbody | ~0.08s | ~0.07s | ~0.01s | ~0.01s | ~0.18s |
+| richards | ~0.05s | ~0.05s | ~0.00s | ~0.00s | ~0.20s |
+| splay | ~1.4s | ~1.4s | ~0.29s | ~0.32s | ~3.5s |
+
+**Takeaways:** method IC vs pure vtable is noise. Fil-C vs g++ on the same ZefC code is ~5–10× (safety/check tax). ZefC Fil-C beating Zef Fil-C is mostly AOT C++ vs interpretation, not vtable-vs-IC.
+
 ScriptBench smoke (`nbody`, `splay`, `richards`) exercises this stack; see [test/smoke/README.md](../test/smoke/README.md).
 
 ## Non-goals (hot path)
