@@ -91,6 +91,7 @@ struct ClassInfo {
   std::unordered_set<std::string> field_names;
   std::unordered_set<std::string> param_names;
   std::unordered_set<std::string> method_names; // zero-arg instance methods (bare Ident call)
+  std::unordered_set<std::string> static_methods0; // zero-arg static methods
   bool has_static = false;
   bool has_static_call0 = false; // static fn call with 0 params
 };
@@ -109,6 +110,7 @@ struct Ctx {
   std::unordered_map<std::string, FuncInfo> functions;
   std::vector<std::string> toplevel_vars;
   const ClassInfo* current_class = nullptr;
+  bool in_static_method = false;
   std::vector<std::string> env_params;
   // Nested class names in scope → capture field names on the class object.
   std::unordered_map<std::string, std::vector<std::string>> local_classes;
@@ -476,6 +478,11 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
       }
       ctx.out << "    " << dst << " = as_id(_cls);\n";
       ctx.out << "  }\n";
+    } else if (ctx.current_class && ctx.in_static_method &&
+               ctx.current_class->static_methods0.count(e.text) &&
+               !ctx.current_class->param_names.count(e.text)) {
+      // Bare static method name → self.method (class object)
+      emit_send(ctx, "self", mangle_method(e.text, 0), {}, dst);
     } else if (ctx.current_class && ctx.current_class->method_names.count(e.text) &&
                !ctx.current_class->param_names.count(e.text)) {
       // Bare method name → self.method (e.g. `fn thingy stuff`)
@@ -533,10 +540,17 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
               << sel_expr(mangled) << ");\n";
       return;
     }
-    // ClassName.field → static
+    // ClassName.member → static field or zero-arg static method
     if (e.lhs && e.lhs->kind == Expr::Kind::Ident && ctx.classes.count(e.lhs->text)) {
       const std::string& cls = e.lhs->text;
-      ctx.out << "  " << dst << " = g_" << cls << "Class." << e.text << ";\n";
+      const ClassInfo& ci = ctx.classes[cls];
+      if (ci.static_methods0.count(e.text)) {
+        ctx.out << "  " << dst << " = " << cls << "__" << mangle_method(e.text, 0)
+                << "(as_id(&g_" << cls << "Class), " << sel_expr(mangle_method(e.text, 0))
+                << ");\n";
+      } else {
+        ctx.out << "  " << dst << " = g_" << cls << "Class." << e.text << ";\n";
+      }
       return;
     }
     const std::string recv = ctx.fresh("t");
@@ -1224,6 +1238,9 @@ collect_classes(Ctx& ctx, const Program& program)
         if (m.name == "call" && m.params.empty()) {
           info.has_static_call0 = true;
         }
+        if (!m.name.empty() && m.params.empty()) {
+          info.static_methods0.insert(m.name);
+        }
       } else if (!m.name.empty() && m.params.empty()) {
         info.method_names.insert(m.name);
       }
@@ -1454,6 +1471,7 @@ emit_class(Ctx& ctx, const ClassDecl& c)
         ctx.out << ", id " << m.params[i];
       }
       ctx.out << ")\n{\n  (void)selector;\n";
+      ctx.in_static_method = m.is_static;
       ctx.env_params.clear();
       for (const Field& f : c.fields) {
         if (!f.is_static) {
@@ -1467,6 +1485,7 @@ emit_class(Ctx& ctx, const ClassDecl& c)
       ctx.out << "  id " << tmp << ";\n";
       emit_body(ctx, m.body, tmp, false);
       ctx.env_params.clear();
+      ctx.in_static_method = false;
       ctx.out << "}\n\n";
     }
   }
