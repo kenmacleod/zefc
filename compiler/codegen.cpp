@@ -72,9 +72,14 @@ struct ClassInfo {
   bool has_static = false;
 };
 
+struct FuncInfo {
+  const FuncDecl* decl = nullptr;
+};
+
 struct Ctx {
   std::ostringstream out;
   std::unordered_map<std::string, ClassInfo> classes;
+  std::unordered_map<std::string, FuncInfo> functions;
   const ClassInfo* current_class = nullptr;
   int tmp = 0;
 
@@ -128,6 +133,14 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
 {
   switch (e.kind) {
   case Expr::Kind::Ident: {
+    if (e.text == "super") {
+      if (!ctx.current_class || ctx.current_class->decl->parent.empty()) {
+        throw std::runtime_error("super outside subclass");
+      }
+      // Empty parent ctor: no-op on already-allocated self.
+      ctx.out << "  " << dst << " = null_id();\n";
+      return;
+    }
     if (is_field(ctx, e.text)) {
       const std::string& cls = ctx.current_class->decl->name;
       ctx.out << "  " << dst << " = body<" << cls << "_>(self)->" << e.text << ";\n";
@@ -143,6 +156,17 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
     ctx.out << "  " << dst << " = Int__from_i64(" << e.text << ");\n";
     return;
   case Expr::Kind::Dot: {
+    // super.method → direct superclass method call
+    if (e.lhs && e.lhs->kind == Expr::Kind::Ident && e.lhs->text == "super") {
+      if (!ctx.current_class || ctx.current_class->decl->parent.empty()) {
+        throw std::runtime_error("super.method outside subclass");
+      }
+      const std::string& parent = ctx.current_class->decl->parent;
+      const std::string mangled = mangle_method(e.text, 0);
+      ctx.out << "  " << dst << " = " << parent << "__" << mangled << "(self, "
+              << sel_expr(mangled) << ");\n";
+      return;
+    }
     // ClassName.field → static
     if (e.lhs && e.lhs->kind == Expr::Kind::Ident && ctx.classes.count(e.lhs->text)) {
       const std::string& cls = e.lhs->text;
@@ -156,15 +180,18 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
     return;
   }
   case Expr::Kind::Binary: {
-    if (e.text != "+") {
-      throw std::runtime_error("unsupported binary op: " + e.text);
-    }
     const std::string a = ctx.fresh("t");
     const std::string b = ctx.fresh("t");
     ctx.out << "  id " << a << ";\n  id " << b << ";\n";
     emit_expr(ctx, *e.lhs, a);
     emit_expr(ctx, *e.rhs, b);
-    ctx.out << "  " << dst << " = ZEFC_SEND1(" << a << ", ZEFC_SEL_add_o, " << b << ");\n";
+    if (e.text == "+") {
+      ctx.out << "  " << dst << " = ZEFC_SEND1(" << a << ", ZEFC_SEL_add_o, " << b << ");\n";
+    } else if (e.text == "==") {
+      ctx.out << "  " << dst << " = Int__from_i64((" << a << " == " << b << ") ? 1 : 0);\n";
+    } else {
+      throw std::runtime_error("unsupported binary op: " + e.text);
+    }
     return;
   }
   case Expr::Kind::Assign: {
@@ -283,6 +310,12 @@ void
 collect_classes(Ctx& ctx, const Program& program)
 {
   for (const Stmt& s : program.stmts) {
+    if (s.kind == Stmt::Kind::Func) {
+      FuncInfo fi;
+      fi.decl = &s.func_decl;
+      ctx.functions[s.func_decl.name] = fi;
+      continue;
+    }
     if (s.kind != Stmt::Kind::Class) {
       continue;
     }
@@ -296,7 +329,27 @@ collect_classes(Ctx& ctx, const Program& program)
         info.has_static = true;
       }
     }
+    // Inherit parent instance field names for is_field in methods
+    if (!s.class_decl.parent.empty()) {
+      // parent may appear later; field merge deferred in emit if needed
+    }
     ctx.classes[s.class_decl.name] = std::move(info);
+  }
+  // Second pass: merge parent field names
+  for (auto& kv : ctx.classes) {
+    std::string p = kv.second.decl->parent;
+    while (!p.empty()) {
+      auto it = ctx.classes.find(p);
+      if (it == ctx.classes.end()) {
+        break;
+      }
+      for (const Field& f : it->second.decl->fields) {
+        if (!f.is_static) {
+          kv.second.field_names.insert(f.name);
+        }
+      }
+      p = it->second.decl->parent;
+    }
   }
 }
 
@@ -331,6 +384,26 @@ emit_class(Ctx& ctx, const ClassDecl& c)
   ClassInfo* info = &ctx.classes[name];
 
   ctx.out << "struct " << name << "_ {\n  IsaPtr isa_;\n";
+  // Flatten ancestor instance fields then own.
+  {
+    std::vector<std::string> chain;
+    std::string p = c.parent;
+    while (!p.empty()) {
+      chain.push_back(p);
+      auto it = ctx.classes.find(p);
+      if (it == ctx.classes.end()) {
+        break;
+      }
+      p = it->second.decl->parent;
+    }
+    for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+      for (const Field& f : ctx.classes[*it].decl->fields) {
+        if (!f.is_static) {
+          ctx.out << "  id " << f.name << ";\n";
+        }
+      }
+    }
+  }
   for (const Field& f : c.fields) {
     if (!f.is_static) {
       ctx.out << "  id " << f.name << ";\n";
@@ -458,7 +531,40 @@ emit_class(Ctx& ctx, const ClassDecl& c)
 
   ctx.out << "static void\nensure_" << name << "()\n{\n";
   ctx.out << "  if (" << name << "_vtable) {\n    return;\n  }\n";
+  if (!c.parent.empty()) {
+    ctx.out << "  ensure_" << c.parent << "();\n";
+  }
   ctx.out << "  " << name << "_vtable = vtable_create();\n";
+  // Inherit parent method slots (override below).
+  if (!c.parent.empty()) {
+    auto pit = ctx.classes.find(c.parent);
+    if (pit != ctx.classes.end()) {
+      const ClassDecl& parent = *pit->second.decl;
+      for (const Method& pm : parent.methods) {
+        if (pm.name.empty()) {
+          continue;
+        }
+        const std::string mangled = mangle_method(pm.name, pm.params.size());
+        ctx.out << "  vtable_set(" << name << "_vtable, selector_intern(\"" << mangled
+                << "\"), " << c.parent << "__" << mangled << ");\n";
+      }
+      for (const Field& f : parent.fields) {
+        if (f.is_static) {
+          continue;
+        }
+        if (f.readable || f.accessible) {
+          ctx.out << "  vtable_set(" << name << "_vtable, selector_intern(\""
+                  << mangle_getter(f.name) << "\"), " << c.parent << "__"
+                  << mangle_getter(f.name) << ");\n";
+        }
+        if (f.accessible) {
+          ctx.out << "  vtable_set(" << name << "_vtable, selector_intern(\""
+                  << mangle_setter(f.name) << "\"), " << c.parent << "__"
+                  << mangle_setter(f.name) << ");\n";
+        }
+      }
+    }
+  }
   for (const Field& f : c.fields) {
     if (f.is_static) {
       continue;
@@ -498,7 +604,6 @@ emit_class(Ctx& ctx, const ClassDecl& c)
       }
       const std::string t = ctx.fresh("t");
       ctx.out << "    id " << t << ";\n";
-      // init expr at ensure time (top-level constants)
       emit_expr_top(ctx, *f.init, t);
       ctx.out << "    g_" << name << "Class." << f.name << " = " << t << ";\n";
     }
@@ -538,6 +643,26 @@ codegen_cpp(const Program& program, const std::string& source_path)
     }
   }
 
+  for (const Stmt& s : program.stmts) {
+    if (s.kind != Stmt::Kind::Func) {
+      continue;
+    }
+    const FuncDecl& f = s.func_decl;
+    ctx.out << "static id\nfn_" << f.name << "(";
+    for (size_t i = 0; i < f.params.size(); ++i) {
+      if (i) {
+        ctx.out << ", ";
+      }
+      ctx.out << "id " << f.params[i];
+    }
+    ctx.out << ")\n{\n";
+    ctx.current_class = nullptr;
+    const std::string tmp = ctx.fresh("t");
+    ctx.out << "  id " << tmp << ";\n";
+    emit_body(ctx, f.body, tmp, false);
+    ctx.out << "}\n\n";
+  }
+
   ctx.out << "} // namespace\n\n";
   ctx.out << "int\nmain()\n{\n";
   ctx.out << "  runtime_package_init();\n";
@@ -550,9 +675,14 @@ codegen_cpp(const Program& program, const std::string& source_path)
       ctx.current_class = nullptr;
       emit_expr_top(ctx, *s.expr, s.var_name);
     } else if (s.kind == Stmt::Kind::Expr) {
+      ctx.current_class = nullptr;
+      // Bare function name → call
+      if (s.expr->kind == Expr::Kind::Ident && ctx.functions.count(s.expr->text)) {
+        ctx.out << "  (void)fn_" << s.expr->text << "();\n";
+        continue;
+      }
       const std::string tmp = ctx.fresh("t");
       ctx.out << "  id " << tmp << ";\n";
-      ctx.current_class = nullptr;
       emit_expr_top(ctx, *s.expr, tmp);
     }
   }

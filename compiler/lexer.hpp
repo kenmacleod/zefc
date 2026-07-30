@@ -27,6 +27,8 @@ enum class TokKind {
   Comma,
   Plus,
   Eq,
+  EqEq,
+  Colon,
   Semicolon,
 };
 

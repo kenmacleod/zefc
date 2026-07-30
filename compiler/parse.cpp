@@ -58,6 +58,12 @@ Parser::parse_stmt()
     s.class_decl = parse_class();
     return s;
   }
+  if (check(TokKind::KwFn)) {
+    Stmt s;
+    s.kind = Stmt::Kind::Func;
+    s.func_decl = parse_func();
+    return s;
+  }
   // Top-level: my name = expr
   if (check(TokKind::KwMy)) {
     next();
@@ -80,6 +86,10 @@ Parser::parse_class()
   expect(TokKind::KwClass, "class");
   ClassDecl c;
   c.name = expect(TokKind::Ident, "class name").text;
+  if (check(TokKind::Colon)) {
+    next();
+    c.parent = expect(TokKind::Ident, "parent class").text;
+  }
   expect(TokKind::LBrace, "{");
   while (!check(TokKind::RBrace) && !check(TokKind::Eof)) {
     bool is_static = false;
@@ -151,6 +161,27 @@ Parser::parse_method()
   return m;
 }
 
+FuncDecl
+Parser::parse_func()
+{
+  expect(TokKind::KwFn, "fn");
+  FuncDecl f;
+  f.name = expect(TokKind::Ident, "function name").text;
+  if (check(TokKind::LParen)) {
+    next();
+    if (!check(TokKind::RParen)) {
+      f.params.push_back(expect(TokKind::Ident, "parameter").text);
+      while (check(TokKind::Comma)) {
+        next();
+        f.params.push_back(expect(TokKind::Ident, "parameter").text);
+      }
+    }
+    expect(TokKind::RParen, ")");
+  }
+  f.body = parse_method_body();
+  return f;
+}
+
 std::vector<ExprPtr>
 Parser::parse_method_body()
 {
@@ -176,7 +207,7 @@ Parser::parse_expr()
 ExprPtr
 Parser::parse_assign()
 {
-  ExprPtr e = parse_add();
+  ExprPtr e = parse_equality();
   if (check(TokKind::Eq)) {
     next();
     auto a = std::make_unique<Expr>();
@@ -184,6 +215,22 @@ Parser::parse_assign()
     a->lhs = std::move(e);
     a->rhs = parse_assign();
     return a;
+  }
+  return e;
+}
+
+ExprPtr
+Parser::parse_equality()
+{
+  ExprPtr e = parse_add();
+  while (check(TokKind::EqEq)) {
+    next();
+    auto b = std::make_unique<Expr>();
+    b->kind = Expr::Kind::Binary;
+    b->text = "==";
+    b->lhs = std::move(e);
+    b->rhs = parse_add();
+    e = std::move(b);
   }
   return e;
 }

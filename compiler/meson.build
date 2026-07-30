@@ -108,3 +108,31 @@ test(
   ],
   suite : 'compiler',
 )
+
+foreach case_name : ['test30', 'super']
+  case_zef = meson.project_source_root() / 'test/smoke/zef' / (case_name + '.zef')
+  case_gen = custom_target(
+    case_name + '_from_zef',
+    input : case_zef,
+    output : case_name + '.gen.cpp',
+    command : [zefc_exe, '@INPUT@', '-o', '@OUTPUT@'],
+  )
+  case_exe = executable(
+    'zefc-' + case_name,
+    [case_gen] + stdlib_sources,
+    dependencies : [runtime_dep],
+    include_directories : runtime_inc,
+    cpp_args : zefc_cpp_args,
+    install : false,
+  )
+  test(
+    'compiler ' + case_name + ' stdout',
+    python3,
+    args : [
+      meson.project_source_root() / 'test/compiler/check_stdout.py',
+      case_exe,
+      meson.project_source_root() / 'test/smoke/expected' / (case_name + '.stdout'),
+    ],
+    suite : 'compiler',
+  )
+endforeach

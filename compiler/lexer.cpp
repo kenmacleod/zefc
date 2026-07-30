@@ -150,7 +150,15 @@ Lexer::lex_one()
     t.kind = TokKind::Plus;
     break;
   case '=':
-    t.kind = TokKind::Eq;
+    if (ch() == '=') {
+      get();
+      t.kind = TokKind::EqEq;
+    } else {
+      t.kind = TokKind::Eq;
+    }
+    break;
+  case ':':
+    t.kind = TokKind::Colon;
     break;
   case ';':
     t.kind = TokKind::Semicolon;

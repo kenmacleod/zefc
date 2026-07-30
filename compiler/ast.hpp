@@ -43,13 +43,21 @@ struct Method {
 
 struct ClassDecl {
   std::string name;
+  std::string parent; // empty if none
   std::vector<Field> fields;
   std::vector<Method> methods;
 };
 
+struct FuncDecl {
+  std::string name;
+  std::vector<std::string> params;
+  std::vector<ExprPtr> body;
+};
+
 struct Stmt {
-  enum class Kind { Class, Expr, VarDecl } kind;
+  enum class Kind { Class, Expr, VarDecl, Func } kind;
   ClassDecl class_decl;
+  FuncDecl func_decl;
   ExprPtr expr;
   std::string var_name;
 };
