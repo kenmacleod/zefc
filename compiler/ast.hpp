@@ -18,6 +18,7 @@ struct Expr {
     Call,
     Dot,
     Binary,
+    Unary,
     Assign,
     Lambda,
   } kind;

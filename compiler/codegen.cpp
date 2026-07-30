@@ -62,6 +62,12 @@ sel_expr(const std::string& mangled)
   if (mangled == "add_o") {
     return "ZEFC_SEL_add_o";
   }
+  if (mangled == "sub_o") {
+    return "ZEFC_SEL_sub_o";
+  }
+  if (mangled == "mul_o") {
+    return "ZEFC_SEL_mul_o";
+  }
   return "ZEFC_SITE(\"" + mangled + "\")";
 }
 
@@ -170,6 +176,7 @@ collect_free(const Expr& e, const std::unordered_set<std::string>& locals,
     break;
   case Expr::Kind::Binary:
   case Expr::Kind::Assign:
+  case Expr::Kind::Unary:
     if (e.lhs) {
       collect_free(*e.lhs, locals, env, captures);
     }
@@ -360,11 +367,27 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
     emit_expr(ctx, *e.rhs, b);
     if (e.text == "+") {
       ctx.out << "  " << dst << " = ZEFC_SEND1(" << a << ", ZEFC_SEL_add_o, " << b << ");\n";
+    } else if (e.text == "-") {
+      ctx.out << "  " << dst << " = ZEFC_SEND1(" << a << ", ZEFC_SEL_sub_o, " << b << ");\n";
+    } else if (e.text == "*") {
+      ctx.out << "  " << dst << " = ZEFC_SEND1(" << a << ", ZEFC_SEL_mul_o, " << b << ");\n";
     } else if (e.text == "==") {
       ctx.out << "  " << dst << " = Int__from_i64((" << a << " == " << b << ") ? 1 : 0);\n";
     } else {
       throw std::runtime_error("unsupported binary op: " + e.text);
     }
+    return;
+  }
+  case Expr::Kind::Unary: {
+    if (e.text != "-") {
+      throw std::runtime_error("unsupported unary op: " + e.text);
+    }
+    const std::string a = ctx.fresh("t");
+    const std::string z = ctx.fresh("t");
+    ctx.out << "  id " << a << ";\n  id " << z << ";\n";
+    emit_expr(ctx, *e.rhs, a);
+    ctx.out << "  " << z << " = Int__from_i64(0);\n";
+    ctx.out << "  " << dst << " = ZEFC_SEND1(" << z << ", ZEFC_SEL_sub_o, " << a << ");\n";
     return;
   }
   case Expr::Kind::Assign: {
@@ -445,10 +468,23 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
         return;
       }
       if (callee == "println") {
-        if (arg_tmps.size() != 1) {
-          throw std::runtime_error("println expects 1 argument");
+        if (arg_tmps.empty()) {
+          throw std::runtime_error("println expects at least 1 argument");
         }
-        ctx.out << "  println(" << arg_tmps[0] << ");\n";
+        if (arg_tmps.size() == 1) {
+          ctx.out << "  println(" << arg_tmps[0] << ");\n";
+        } else {
+          // Multi-arg: concatenate toString of each arg, then println.
+          const std::string acc = ctx.fresh("t");
+          ctx.out << "  id " << acc << " = String__from_utf8(\"\");\n";
+          for (const std::string& a : arg_tmps) {
+            const std::string s = ctx.fresh("t");
+            ctx.out << "  id " << s << " = ZEFC_SEND0(" << a << ", ZEFC_SEL_toString_o);\n";
+            ctx.out << "  " << acc << " = ZEFC_SEND1(" << acc << ", ZEFC_SEL_add_o, " << s
+                    << ");\n";
+          }
+          ctx.out << "  println(" << acc << ");\n";
+        }
         ctx.out << "  " << dst << " = null_id();\n";
         return;
       }

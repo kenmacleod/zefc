@@ -29,6 +29,8 @@ private:
   ExprPtr parse_assign();
   ExprPtr parse_equality();
   ExprPtr parse_add();
+  ExprPtr parse_mul();
+  ExprPtr parse_unary();
   ExprPtr parse_postfix();
   ExprPtr parse_primary();
   std::vector<ExprPtr> parse_arg_list();

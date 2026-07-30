@@ -44,7 +44,17 @@ Parser::parse_program()
 {
   Program p;
   while (!check(TokKind::Eof)) {
+    // Optional statement terminators (Zef allows `;`).
+    while (check(TokKind::Semicolon)) {
+      next();
+    }
+    if (check(TokKind::Eof)) {
+      break;
+    }
     p.stmts.push_back(parse_stmt());
+    while (check(TokKind::Semicolon)) {
+      next();
+    }
   }
   return p;
 }
@@ -240,17 +250,48 @@ Parser::parse_equality()
 ExprPtr
 Parser::parse_add()
 {
-  ExprPtr e = parse_postfix();
-  while (check(TokKind::Plus)) {
+  ExprPtr e = parse_mul();
+  while (check(TokKind::Plus) || check(TokKind::Minus)) {
+    const bool is_minus = check(TokKind::Minus);
     next();
     auto b = std::make_unique<Expr>();
     b->kind = Expr::Kind::Binary;
-    b->text = "+";
+    b->text = is_minus ? "-" : "+";
     b->lhs = std::move(e);
-    b->rhs = parse_postfix();
+    b->rhs = parse_mul();
     e = std::move(b);
   }
   return e;
+}
+
+ExprPtr
+Parser::parse_mul()
+{
+  ExprPtr e = parse_unary();
+  while (check(TokKind::Star)) {
+    next();
+    auto b = std::make_unique<Expr>();
+    b->kind = Expr::Kind::Binary;
+    b->text = "*";
+    b->lhs = std::move(e);
+    b->rhs = parse_unary();
+    e = std::move(b);
+  }
+  return e;
+}
+
+ExprPtr
+Parser::parse_unary()
+{
+  if (check(TokKind::Minus)) {
+    next();
+    auto u = std::make_unique<Expr>();
+    u->kind = Expr::Kind::Unary;
+    u->text = "-";
+    u->rhs = parse_unary();
+    return u;
+  }
+  return parse_postfix();
 }
 
 ExprPtr

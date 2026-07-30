@@ -118,8 +118,23 @@ Lexer::lex_one()
 
   if (std::isdigit(static_cast<unsigned char>(c))) {
     std::string n;
-    while (std::isdigit(static_cast<unsigned char>(ch()))) {
+    n.push_back(get());
+    if (n[0] == '0' && (ch() == 'x' || ch() == 'X')) {
       n.push_back(get());
+      auto is_hex = [](char h) {
+        return std::isdigit(static_cast<unsigned char>(h)) ||
+               (h >= 'a' && h <= 'f') || (h >= 'A' && h <= 'F');
+      };
+      if (!is_hex(ch())) {
+        throw std::runtime_error("expected hex digit at line " + std::to_string(t.line));
+      }
+      while (is_hex(ch())) {
+        n.push_back(get());
+      }
+    } else {
+      while (std::isdigit(static_cast<unsigned char>(ch()))) {
+        n.push_back(get());
+      }
     }
     t.kind = TokKind::Number;
     t.text = std::move(n);
@@ -153,6 +168,12 @@ Lexer::lex_one()
     } else {
       t.kind = TokKind::Plus;
     }
+    break;
+  case '-':
+    t.kind = TokKind::Minus;
+    break;
+  case '*':
+    t.kind = TokKind::Star;
     break;
   case '=':
     if (ch() == '=') {
