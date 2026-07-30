@@ -194,20 +194,97 @@ Parser::parse_func()
   return f;
 }
 
-std::vector<ExprPtr>
+std::vector<BlockItem>
 Parser::parse_method_body()
 {
-  std::vector<ExprPtr> body;
+  std::vector<BlockItem> body;
   if (check(TokKind::LBrace)) {
     next();
     while (!check(TokKind::RBrace) && !check(TokKind::Eof)) {
-      body.push_back(parse_expr());
+      while (check(TokKind::Semicolon)) {
+        next();
+      }
+      if (check(TokKind::RBrace)) {
+        break;
+      }
+      body.push_back(parse_block_item());
+      while (check(TokKind::Semicolon)) {
+        next();
+      }
     }
     expect(TokKind::RBrace, "}");
     return body; // may be empty
   }
-  body.push_back(parse_expr());
+  body.push_back(parse_block_item());
   return body;
+}
+
+BlockItem
+Parser::parse_block_item()
+{
+  // Local: my name [= expr]
+  if (check(TokKind::KwMy)) {
+    next();
+    BlockItem item;
+    item.kind = BlockItem::Kind::VarDecl;
+    item.var_name = expect(TokKind::Ident, "variable name").text;
+    if (check(TokKind::Eq)) {
+      next();
+      item.expr = parse_expr();
+    }
+    return item;
+  }
+  // Named local function: fn name(...) body  →  my name = fn (...) body
+  if (check(TokKind::KwFn)) {
+    // Peek: fn Ident → nested named; fn ( → expression lambda via parse_expr
+    Token fn_tok = peek();
+    (void)fn_tok;
+    next(); // consume fn
+    if (check(TokKind::Ident)) {
+      BlockItem item;
+      item.kind = BlockItem::Kind::VarDecl;
+      item.var_name = next().text;
+      auto lam = std::make_unique<Expr>();
+      lam->kind = Expr::Kind::Lambda;
+      if (check(TokKind::LParen)) {
+        next();
+        if (!check(TokKind::RParen)) {
+          lam->params.push_back(expect(TokKind::Ident, "parameter").text);
+          while (check(TokKind::Comma)) {
+            next();
+            lam->params.push_back(expect(TokKind::Ident, "parameter").text);
+          }
+        }
+        expect(TokKind::RParen, ")");
+      }
+      lam->body = parse_method_body();
+      item.expr = std::move(lam);
+      return item;
+    }
+    // Put `fn` back… we already consumed it. Rebuild anonymous lambda here.
+    auto lam = std::make_unique<Expr>();
+    lam->kind = Expr::Kind::Lambda;
+    if (check(TokKind::LParen)) {
+      next();
+      if (!check(TokKind::RParen)) {
+        lam->params.push_back(expect(TokKind::Ident, "parameter").text);
+        while (check(TokKind::Comma)) {
+          next();
+          lam->params.push_back(expect(TokKind::Ident, "parameter").text);
+        }
+      }
+      expect(TokKind::RParen, ")");
+    }
+    lam->body = parse_method_body();
+    BlockItem item;
+    item.kind = BlockItem::Kind::Expr;
+    item.expr = std::move(lam);
+    return item;
+  }
+  BlockItem item;
+  item.kind = BlockItem::Kind::Expr;
+  item.expr = parse_expr();
+  return item;
 }
 
 ExprPtr

@@ -87,6 +87,7 @@ struct Ctx {
   std::ostringstream prelude; // closure types/methods at namespace scope
   std::unordered_map<std::string, ClassInfo> classes;
   std::unordered_map<std::string, FuncInfo> functions;
+  std::vector<std::string> toplevel_vars;
   const ClassInfo* current_class = nullptr;
   std::vector<std::string> env_params;
   int tmp = 0;
@@ -100,8 +101,9 @@ struct Ctx {
 
 void emit_expr(Ctx& ctx, const Expr& e, const std::string& dst);
 void emit_expr_top(Ctx& ctx, const Expr& e, const std::string& dst);
-void emit_body(Ctx& ctx, const std::vector<ExprPtr>& body, const std::string& result_dst,
+void emit_body(Ctx& ctx, const std::vector<BlockItem>& body, const std::string& result_dst,
                bool ctor_return_self);
+void emit_block_item(Ctx& ctx, const BlockItem& item, const std::string* result_dst);
 
 bool
 is_field(const Ctx& ctx, const std::string& name)
@@ -204,8 +206,15 @@ collect_free(const Expr& e, const std::unordered_set<std::string>& locals,
       nested_env.push_back(l);
     }
     std::vector<std::string> nested_caps;
-    for (const auto& s : e.body) {
-      collect_free(*s, nested_locals, nested_env, nested_caps);
+    for (const BlockItem& item : e.body) {
+      if (item.kind == BlockItem::Kind::VarDecl) {
+        if (item.expr) {
+          collect_free(*item.expr, nested_locals, nested_env, nested_caps);
+        }
+        nested_locals.insert(item.var_name);
+      } else if (item.expr) {
+        collect_free(*item.expr, nested_locals, nested_env, nested_caps);
+      }
     }
     for (const std::string& c : nested_caps) {
       add_cap(c);
@@ -225,8 +234,18 @@ emit_lambda(Ctx& ctx, const Expr& e, const std::string& dst)
     locals.insert(p);
   }
   std::vector<std::string> captures;
-  for (const auto& s : e.body) {
-    collect_free(*s, locals, ctx.env_params, captures);
+  {
+    std::unordered_set<std::string> scan_locals = locals;
+    for (const BlockItem& item : e.body) {
+      if (item.kind == BlockItem::Kind::VarDecl) {
+        if (item.expr) {
+          collect_free(*item.expr, scan_locals, ctx.env_params, captures);
+        }
+        scan_locals.insert(item.var_name);
+      } else if (item.expr) {
+        collect_free(*item.expr, scan_locals, ctx.env_params, captures);
+      }
+    }
   }
 
   const int id = ctx.closure_id++;
@@ -554,7 +573,39 @@ emit_expr_top(Ctx& ctx, const Expr& e, const std::string& dst)
 }
 
 void
-emit_body(Ctx& ctx, const std::vector<ExprPtr>& body, const std::string& result_dst,
+emit_block_item(Ctx& ctx, const BlockItem& item, const std::string* result_dst)
+{
+  if (item.kind == BlockItem::Kind::VarDecl) {
+    ctx.out << "  id " << item.var_name;
+    if (item.expr) {
+      ctx.out << ";\n";
+      emit_expr_top(ctx, *item.expr, item.var_name);
+    } else {
+      ctx.out << " = null_id();\n";
+    }
+    ctx.env_params.push_back(item.var_name);
+    if (result_dst) {
+      ctx.out << "  " << *result_dst << " = " << item.var_name << ";\n";
+    }
+    return;
+  }
+  if (!item.expr) {
+    if (result_dst) {
+      ctx.out << "  " << *result_dst << " = null_id();\n";
+    }
+    return;
+  }
+  if (result_dst) {
+    emit_expr_top(ctx, *item.expr, *result_dst);
+  } else {
+    const std::string t = ctx.fresh("t");
+    ctx.out << "  id " << t << ";\n";
+    emit_expr_top(ctx, *item.expr, t);
+  }
+}
+
+void
+emit_body(Ctx& ctx, const std::vector<BlockItem>& body, const std::string& result_dst,
           bool ctor_return_self)
 {
   if (body.empty()) {
@@ -567,11 +618,9 @@ emit_body(Ctx& ctx, const std::vector<ExprPtr>& body, const std::string& result_
     return;
   }
   for (size_t i = 0; i + 1 < body.size(); ++i) {
-    const std::string t = ctx.fresh("t");
-    ctx.out << "  id " << t << ";\n";
-    emit_expr_top(ctx, *body[i], t);
+    emit_block_item(ctx, body[i], nullptr);
   }
-  emit_expr_top(ctx, *body.back(), result_dst);
+  emit_block_item(ctx, body.back(), &result_dst);
   if (ctor_return_self) {
     ctx.out << "  return self;\n";
   } else {
@@ -933,6 +982,16 @@ codegen_cpp(const Program& program, const std::string& source_path)
   ctx.out << "namespace {\n\n";
 
   for (const Stmt& s : program.stmts) {
+    if (s.kind == Stmt::Kind::VarDecl) {
+      ctx.toplevel_vars.push_back(s.var_name);
+      ctx.out << "static id " << s.var_name << ";\n";
+    }
+  }
+  if (!ctx.toplevel_vars.empty()) {
+    ctx.out << "\n";
+  }
+
+  for (const Stmt& s : program.stmts) {
     if (s.kind == Stmt::Kind::Class) {
       emit_class(ctx, s.class_decl);
     }
@@ -959,7 +1018,10 @@ codegen_cpp(const Program& program, const std::string& source_path)
       }
       ctx.out << ")\n{\n";
       ctx.current_class = nullptr;
-      ctx.env_params = f.params;
+      ctx.env_params = ctx.toplevel_vars;
+      for (const std::string& p : f.params) {
+        ctx.env_params.push_back(p);
+      }
       const std::string tmp = ctx.fresh("t");
       ctx.out << "  id " << tmp << ";\n";
       emit_body(ctx, f.body, tmp, false);
@@ -989,19 +1051,17 @@ codegen_cpp(const Program& program, const std::string& source_path)
     for (const auto& kv : ctx.classes) {
       ctx.out << "  ensure_" << kv.first << "();\n";
     }
-    ctx.env_params.clear();
+    ctx.env_params = ctx.toplevel_vars;
     for (const Stmt& s : program.stmts) {
-    if (s.kind == Stmt::Kind::VarDecl) {
-      ctx.out << "  id " << s.var_name;
-      if (s.expr) {
-        ctx.out << ";\n";
+      if (s.kind == Stmt::Kind::VarDecl) {
         ctx.current_class = nullptr;
-        emit_expr_top(ctx, *s.expr, s.var_name);
-      } else {
-        ctx.out << " = null_id();\n";
-      }
-      ctx.env_params.push_back(s.var_name);
-    } else if (s.kind == Stmt::Kind::Expr) {
+        if (s.expr) {
+          emit_expr_top(ctx, *s.expr, s.var_name);
+        } else {
+          ctx.out << "  " << s.var_name << " = null_id();\n";
+        }
+        // Already in toplevel_vars / env_params.
+      } else if (s.kind == Stmt::Kind::Expr) {
         ctx.current_class = nullptr;
         // Bare function name → call
         if (s.expr->kind == Expr::Kind::Ident && ctx.functions.count(s.expr->text)) {

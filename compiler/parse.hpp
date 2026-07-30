@@ -24,7 +24,8 @@ private:
   ClassDecl parse_class();
   Method parse_method();
   FuncDecl parse_func();
-  std::vector<ExprPtr> parse_method_body();
+  std::vector<BlockItem> parse_method_body();
+  BlockItem parse_block_item();
   ExprPtr parse_expr();
   ExprPtr parse_assign();
   ExprPtr parse_equality();

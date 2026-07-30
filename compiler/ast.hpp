@@ -10,6 +10,13 @@ namespace compiler {
 struct Expr;
 using ExprPtr = std::unique_ptr<Expr>;
 
+// Statement inside a `{ ... }` body (methods, functions, lambdas).
+struct BlockItem {
+  enum class Kind { Expr, VarDecl } kind;
+  ExprPtr expr;         // Expr stmt, or VarDecl initializer (may be null)
+  std::string var_name; // VarDecl
+};
+
 struct Expr {
   enum class Kind {
     Ident,
@@ -28,7 +35,7 @@ struct Expr {
   ExprPtr rhs;
   std::vector<ExprPtr> args;
   std::vector<std::string> params; // Lambda
-  std::vector<ExprPtr> body;       // Lambda
+  std::vector<BlockItem> body;     // Lambda
 };
 
 struct Field {
@@ -42,7 +49,7 @@ struct Field {
 struct Method {
   std::string name; // empty = constructor
   std::vector<std::string> params;
-  std::vector<ExprPtr> body; // may be empty
+  std::vector<BlockItem> body; // may be empty
 };
 
 struct ClassDecl {
@@ -55,7 +62,7 @@ struct ClassDecl {
 struct FuncDecl {
   std::string name;
   std::vector<std::string> params;
-  std::vector<ExprPtr> body;
+  std::vector<BlockItem> body;
 };
 
 struct Stmt {
