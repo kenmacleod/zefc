@@ -172,6 +172,12 @@ Lexer::lex_one()
   case ')':
     t.kind = TokKind::RParen;
     break;
+  case '[':
+    t.kind = TokKind::LBracket;
+    break;
+  case ']':
+    t.kind = TokKind::RBracket;
+    break;
   case '.':
     t.kind = TokKind::Dot;
     break;
@@ -190,7 +196,12 @@ Lexer::lex_one()
     t.kind = TokKind::Minus;
     break;
   case '*':
-    t.kind = TokKind::Star;
+    if (ch() == '=') {
+      get();
+      t.kind = TokKind::StarEq;
+    } else {
+      t.kind = TokKind::Star;
+    }
     break;
   case '/':
     t.kind = TokKind::Slash;

@@ -434,12 +434,17 @@ ExprPtr
 Parser::parse_assign()
 {
   ExprPtr e = parse_equality();
-  if (check(TokKind::Eq) || check(TokKind::PlusEq)) {
-    const bool plus_eq = check(TokKind::PlusEq);
+  if (check(TokKind::Eq) || check(TokKind::PlusEq) || check(TokKind::StarEq)) {
+    std::string op = "=";
+    if (check(TokKind::PlusEq)) {
+      op = "+=";
+    } else if (check(TokKind::StarEq)) {
+      op = "*=";
+    }
     next();
     auto a = std::make_unique<Expr>();
     a->kind = Expr::Kind::Assign;
-    a->text = plus_eq ? "+=" : "=";
+    a->text = op;
     a->lhs = std::move(e);
     a->rhs = parse_assign();
     return a;
@@ -569,6 +574,14 @@ Parser::parse_postfix()
       c->lhs = std::move(e);
       c->args = parse_arg_list();
       e = std::move(c);
+    } else if (check(TokKind::LBracket)) {
+      next();
+      auto ix = std::make_unique<Expr>();
+      ix->kind = Expr::Kind::Index;
+      ix->lhs = std::move(e);
+      ix->rhs = parse_expr();
+      expect(TokKind::RBracket, "]");
+      e = std::move(ix);
     } else {
       break;
     }
@@ -620,6 +633,20 @@ Parser::parse_primary()
     next();
     ExprPtr e = parse_expr();
     expect(TokKind::RParen, ")");
+    return e;
+  }
+  if (check(TokKind::LBracket)) {
+    next();
+    auto e = std::make_unique<Expr>();
+    e->kind = Expr::Kind::ArrayLit;
+    if (!check(TokKind::RBracket)) {
+      e->args.push_back(parse_expr());
+      while (check(TokKind::Comma)) {
+        next();
+        e->args.push_back(parse_expr());
+      }
+    }
+    expect(TokKind::RBracket, "]");
     return e;
   }
   Token t = peek();

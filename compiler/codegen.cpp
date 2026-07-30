@@ -71,6 +71,18 @@ sel_expr(const std::string& mangled)
   if (mangled == "div_o") {
     return "ZEFC_SEL_div_o";
   }
+  if (mangled == "push_o") {
+    return "ZEFC_SEL_push_o";
+  }
+  if (mangled == "GET_i") {
+    return "ZEFC_SEL_GET_i";
+  }
+  if (mangled == "PUT_i") {
+    return "ZEFC_SEL_PUT_i";
+  }
+  if (mangled == "mul_PUT_i") {
+    return "ZEFC_SEL_mul_PUT_i";
+  }
   return "ZEFC_SITE(\"" + mangled + "\")";
 }
 
@@ -178,6 +190,19 @@ collect_free(const Expr& e, const std::unordered_set<std::string>& locals,
   case Expr::Kind::Dot:
     if (e.lhs) {
       collect_free(*e.lhs, locals, env, captures);
+    }
+    break;
+  case Expr::Kind::Index:
+    if (e.lhs) {
+      collect_free(*e.lhs, locals, env, captures);
+    }
+    if (e.rhs) {
+      collect_free(*e.rhs, locals, env, captures);
+    }
+    break;
+  case Expr::Kind::ArrayLit:
+    for (const auto& a : e.args) {
+      collect_free(*a, locals, env, captures);
     }
     break;
   case Expr::Kind::Binary:
@@ -387,6 +412,25 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
   case Expr::Kind::Lambda:
     emit_lambda(ctx, e, dst);
     return;
+  case Expr::Kind::ArrayLit: {
+    ctx.out << "  " << dst << " = Array__new();\n";
+    for (const auto& a : e.args) {
+      const std::string el = ctx.fresh("t");
+      ctx.out << "  id " << el << ";\n";
+      emit_expr(ctx, *a, el);
+      ctx.out << "  (void)ZEFC_SEND1(" << dst << ", ZEFC_SEL_push_o, " << el << ");\n";
+    }
+    return;
+  }
+  case Expr::Kind::Index: {
+    const std::string recv = ctx.fresh("t");
+    const std::string ix = ctx.fresh("t");
+    ctx.out << "  id " << recv << ";\n  id " << ix << ";\n";
+    emit_expr(ctx, *e.lhs, recv);
+    emit_expr(ctx, *e.rhs, ix);
+    ctx.out << "  " << dst << " = ZEFC_SEND1(" << recv << ", ZEFC_SEL_GET_i, " << ix << ");\n";
+    return;
+  }
   case Expr::Kind::String:
     ctx.out << "  " << dst << " = String__from_utf8(\"" << mangle_escape(e.text) << "\");\n";
     return;
@@ -532,8 +576,35 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
   }
   case Expr::Kind::Assign: {
     const bool plus_eq = (e.text == "+=");
+    const bool star_eq = (e.text == "*=");
     const std::string rhs = ctx.fresh("t");
     ctx.out << "  id " << rhs << ";\n";
+
+    // a[i] *= v → mul_PUT_i
+    if (star_eq && e.lhs && e.lhs->kind == Expr::Kind::Index) {
+      const std::string recv = ctx.fresh("t");
+      const std::string ix = ctx.fresh("t");
+      ctx.out << "  id " << recv << ";\n  id " << ix << ";\n";
+      emit_expr(ctx, *e.lhs->lhs, recv);
+      emit_expr(ctx, *e.lhs->rhs, ix);
+      emit_expr(ctx, *e.rhs, rhs);
+      ctx.out << "  " << dst << " = ZEFC_SEND2(" << recv << ", ZEFC_SEL_mul_PUT_i, " << ix
+              << ", " << rhs << ");\n";
+      return;
+    }
+    // a[i] = v → PUT_i
+    if (!plus_eq && !star_eq && e.lhs && e.lhs->kind == Expr::Kind::Index) {
+      const std::string recv = ctx.fresh("t");
+      const std::string ix = ctx.fresh("t");
+      ctx.out << "  id " << recv << ";\n  id " << ix << ";\n";
+      emit_expr(ctx, *e.lhs->lhs, recv);
+      emit_expr(ctx, *e.lhs->rhs, ix);
+      emit_expr(ctx, *e.rhs, rhs);
+      ctx.out << "  " << dst << " = ZEFC_SEND2(" << recv << ", ZEFC_SEL_PUT_i, " << ix << ", "
+              << rhs << ");\n";
+      return;
+    }
+
     if (plus_eq) {
       // lhs += rhs  →  lhs = lhs + rhs
       const std::string cur = ctx.fresh("t");
@@ -545,13 +616,31 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
       } else if (e.lhs && e.lhs->kind == Expr::Kind::Ident) {
         ctx.out << "  " << cur << " = " << e.lhs->text << ";\n";
       } else if (e.lhs && e.lhs->kind == Expr::Kind::Dot) {
-        // Only instance/static field get via getter or direct — reuse emit_expr on lhs
+        emit_expr(ctx, *e.lhs, cur);
+      } else if (e.lhs && e.lhs->kind == Expr::Kind::Index) {
         emit_expr(ctx, *e.lhs, cur);
       } else {
-        throw std::runtime_error("+= target must be an identifier or field");
+        throw std::runtime_error("+= target must be an identifier, field, or index");
       }
       emit_expr(ctx, *e.rhs, addend);
       ctx.out << "  " << rhs << " = ZEFC_SEND1(" << cur << ", ZEFC_SEL_add_o, " << addend
+              << ");\n";
+    } else if (star_eq) {
+      const std::string cur = ctx.fresh("t");
+      const std::string factor = ctx.fresh("t");
+      ctx.out << "  id " << cur << ";\n  id " << factor << ";\n";
+      if (e.lhs && e.lhs->kind == Expr::Kind::Ident && is_field(ctx, e.lhs->text)) {
+        const std::string& cls = ctx.current_class->decl->name;
+        ctx.out << "  " << cur << " = body<" << cls << "_>(self)->" << e.lhs->text << ";\n";
+      } else if (e.lhs && e.lhs->kind == Expr::Kind::Ident) {
+        ctx.out << "  " << cur << " = " << e.lhs->text << ";\n";
+      } else if (e.lhs && e.lhs->kind == Expr::Kind::Dot) {
+        emit_expr(ctx, *e.lhs, cur);
+      } else {
+        throw std::runtime_error("*= target must be an identifier or field");
+      }
+      emit_expr(ctx, *e.rhs, factor);
+      ctx.out << "  " << rhs << " = ZEFC_SEND1(" << cur << ", ZEFC_SEL_mul_o, " << factor
               << ");\n";
     } else {
       emit_expr(ctx, *e.rhs, rhs);
@@ -570,6 +659,16 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
       ctx.out << "  id " << recv << ";\n";
       emit_expr(ctx, *e.lhs->lhs, recv);
       emit_send(ctx, recv, mangle_setter(e.lhs->text), {rhs}, dst);
+      return;
+    }
+    if (e.lhs && e.lhs->kind == Expr::Kind::Index) {
+      const std::string recv = ctx.fresh("t");
+      const std::string ix = ctx.fresh("t");
+      ctx.out << "  id " << recv << ";\n  id " << ix << ";\n";
+      emit_expr(ctx, *e.lhs->lhs, recv);
+      emit_expr(ctx, *e.lhs->rhs, ix);
+      ctx.out << "  " << dst << " = ZEFC_SEND2(" << recv << ", ZEFC_SEL_PUT_i, " << ix << ", "
+              << rhs << ");\n";
       return;
     }
     if (!e.lhs || e.lhs->kind != Expr::Kind::Ident) {
@@ -1108,6 +1207,7 @@ codegen_cpp(const Program& program, const std::string& source_path)
 
   ctx.out << "// Generated by zefc from " << source_path << "\n";
   ctx.out << "// object_dispatch selected at C++ compile time (-DZEFC_OBJECT_DISPATCH).\n\n";
+  ctx.out << "#include \"zefc/array_api.hpp\"\n";
   ctx.out << "#include \"zefc/dispatch.hpp\"\n";
   ctx.out << "#include \"zefc/field_ic.hpp\"\n";
   ctx.out << "#include \"zefc/int_api.hpp\"\n";

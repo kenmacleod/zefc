@@ -24,6 +24,8 @@ struct Expr {
     Number,
     Call,
     Dot,
+    Index,
+    ArrayLit,
     Binary,
     Unary,
     Assign,
