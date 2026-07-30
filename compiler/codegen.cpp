@@ -108,6 +108,13 @@ struct Ctx {
   std::vector<std::string> toplevel_vars;
   const ClassInfo* current_class = nullptr;
   std::vector<std::string> env_params;
+  // Nested class names in scope → capture field names on the class object.
+  std::unordered_map<std::string, std::vector<std::string>> local_classes;
+  std::unordered_set<std::string> nested_emitted;
+  // While emitting a nested-class constructor (class.call):
+  std::string nest_capture_type;   // e.g. "WTFClass_"
+  std::string nest_capture_self;   // C++ expr for class object
+  std::unordered_set<std::string> nest_captures;
   int tmp = 0;
   int closure_id = 0;
 
@@ -122,6 +129,7 @@ void emit_expr_top(Ctx& ctx, const Expr& e, const std::string& dst);
 void emit_body(Ctx& ctx, const std::vector<BlockItem>& body, const std::string& result_dst,
                bool ctor_return_self);
 void emit_block_item(Ctx& ctx, const BlockItem& item, const std::string* result_dst);
+void emit_nested_class(Ctx& ctx, const ClassDecl& c, const std::vector<std::string>& captures);
 
 bool
 is_field(const Ctx& ctx, const std::string& name)
@@ -326,6 +334,8 @@ emit_lambda(Ctx& ctx, const Expr& e, const std::string& dst)
   Ctx body_ctx;
   body_ctx.classes = ctx.classes;
   body_ctx.functions = ctx.functions;
+  body_ctx.local_classes = ctx.local_classes;
+  body_ctx.nested_emitted = ctx.nested_emitted;
   body_ctx.tmp = ctx.tmp;
   body_ctx.closure_id = ctx.closure_id;
   ClassDecl fake;
@@ -403,6 +413,26 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
     if (is_field(ctx, e.text)) {
       const std::string& cls = ctx.current_class->decl->name;
       ctx.out << "  " << dst << " = body<" << cls << "_>(self)->" << e.text << ";\n";
+    } else if (ctx.nest_captures.count(e.text)) {
+      ctx.out << "  " << dst << " = body<" << ctx.nest_capture_type << ">(" << ctx.nest_capture_self
+              << ")->" << e.text << ";\n";
+    } else if (ctx.local_classes.count(e.text)) {
+      // Nested class name → allocate class object with current captures.
+      const std::vector<std::string>& caps = ctx.local_classes[e.text];
+      ctx.out << "  {\n";
+      ctx.out << "    ensure_" << e.text << "Class();\n";
+      ctx.out << "    " << e.text << "Class_* _cls = alloc<" << e.text << "Class_>();\n";
+      ctx.out << "    zefc_set_isa(_cls, " << e.text << "Class_vtable);\n";
+      for (const std::string& cap : caps) {
+        if (is_field(ctx, cap)) {
+          ctx.out << "    _cls->" << cap << " = body<" << ctx.current_class->decl->name
+                  << "_>(self)->" << cap << ";\n";
+        } else {
+          ctx.out << "    _cls->" << cap << " = " << cap << ";\n";
+        }
+      }
+      ctx.out << "    " << dst << " = as_id(_cls);\n";
+      ctx.out << "  }\n";
     } else if (ctx.current_class && ctx.current_class->method_names.count(e.text) &&
                !ctx.current_class->param_names.count(e.text)) {
       // Bare method name → self.method (e.g. `fn thingy stuff`)
@@ -826,8 +856,258 @@ emit_expr_top(Ctx& ctx, const Expr& e, const std::string& dst)
 }
 
 void
+emit_nested_class(Ctx& ctx, const ClassDecl& c, const std::vector<std::string>& captures)
+{
+  const std::string& name = c.name;
+
+  // Instance + class-object layouts.
+  ctx.prelude << "struct " << name << "_ {\n  IsaPtr isa_;\n";
+  for (const Field& f : c.fields) {
+    if (!f.is_static) {
+      ctx.prelude << "  id " << f.name << ";\n";
+    }
+  }
+  ctx.prelude << "};\n\n";
+  ctx.prelude << "struct " << name << "Class_ {\n  IsaPtr isa_;\n";
+  for (const std::string& cap : captures) {
+    ctx.prelude << "  id " << cap << ";\n";
+  }
+  ctx.prelude << "};\n";
+  ctx.prelude << "static VTable* " << name << "_vtable = nullptr;\n";
+  ctx.prelude << "static VTable* " << name << "Class_vtable = nullptr;\n";
+  ctx.prelude << "static void ensure_" << name << "();\n";
+  ctx.prelude << "static void ensure_" << name << "Class();\n\n";
+
+  ClassInfo info;
+  info.decl = &c;
+  for (const Field& f : c.fields) {
+    if (!f.is_static) {
+      info.field_names.insert(f.name);
+    }
+  }
+  for (const Method& m : c.methods) {
+    if (!m.name.empty() && !m.is_static && m.params.empty()) {
+      info.method_names.insert(m.name);
+    }
+  }
+
+  // Accessors + named methods into a temp buffer, then prelude.
+  std::ostringstream meth_out;
+  {
+    Ctx mctx;
+    mctx.classes = ctx.classes;
+    mctx.functions = ctx.functions;
+    mctx.local_classes = ctx.local_classes;
+    mctx.tmp = ctx.tmp;
+    mctx.closure_id = ctx.closure_id;
+    mctx.current_class = &info;
+    mctx.env_params = ctx.env_params;
+
+    for (const Field& f : c.fields) {
+      if (f.is_static) {
+        continue;
+      }
+      if (f.readable || f.accessible) {
+        const std::string g = mangle_getter(f.name);
+        mctx.out << "static id\n" << name << "__" << g << "(id self, int selector)\n{\n";
+        mctx.out << "  (void)selector;\n";
+        mctx.out << "  return body<" << name << "_>(self)->" << f.name << ";\n}\n\n";
+      }
+      if (f.accessible) {
+        const std::string s = mangle_setter(f.name);
+        mctx.out << "static id\n" << name << "__" << s << "(id self, int selector, id v)\n{\n";
+        mctx.out << "  (void)selector;\n";
+        mctx.out << "  body<" << name << "_>(self)->" << f.name << " = v;\n";
+        mctx.out << "  return null_id();\n}\n\n";
+      }
+    }
+
+    for (const Method& m : c.methods) {
+      if (m.name.empty() || m.is_static) {
+        continue;
+      }
+      info.param_names.clear();
+      for (const std::string& p : m.params) {
+        info.param_names.insert(p);
+      }
+      const std::string mangled = mangle_method(m.name, m.params.size());
+      mctx.out << "static id\n" << name << "__" << mangled << "(id self, int selector";
+      for (size_t i = 0; i < m.params.size(); ++i) {
+        mctx.out << ", id " << m.params[i];
+      }
+      mctx.out << ")\n{\n  (void)selector;\n";
+      const std::string tmp = mctx.fresh("t");
+      mctx.out << "  id " << tmp << ";\n";
+      emit_body(mctx, m.body, tmp, false);
+      mctx.out << "}\n\n";
+    }
+
+    // Class object call = constructor: captures live on class `self`.
+    const Method* ctor = nullptr;
+    for (const Method& m : c.methods) {
+      if (m.name.empty()) {
+        ctor = &m;
+        break;
+      }
+    }
+    mctx.out << "static id\n" << name << "Class__call_o(id self, int selector";
+    if (ctor) {
+      for (size_t i = 0; i < ctor->params.size(); ++i) {
+        mctx.out << ", id " << ctor->params[i];
+      }
+    }
+    mctx.out << ")\n{\n  (void)selector;\n";
+    mctx.out << "  ensure_" << name << "();\n";
+    mctx.out << "  id nest_cls = self;\n";
+    mctx.out << "  " << name << "_* self_b = alloc<" << name << "_>();\n";
+    mctx.out << "  self = as_id(self_b);\n";
+    mctx.out << "  zefc_set_isa(self_b, " << name << "_vtable);\n";
+    mctx.nest_capture_type = name + "Class_";
+    mctx.nest_capture_self = "nest_cls";
+    mctx.nest_captures.clear();
+    for (const std::string& cap : captures) {
+      mctx.nest_captures.insert(cap);
+    }
+    info.param_names.clear();
+    if (ctor) {
+      for (const std::string& p : ctor->params) {
+        info.param_names.insert(p);
+      }
+    }
+    for (const Field& f : c.fields) {
+      if (f.is_static || !f.init) {
+        continue;
+      }
+      const std::string t = mctx.fresh("t");
+      mctx.out << "  id " << t << ";\n";
+      emit_expr_top(mctx, *f.init, t);
+      mctx.out << "  body<" << name << "_>(self)->" << f.name << " = " << t << ";\n";
+    }
+    if (ctor) {
+      const std::string tmp = mctx.fresh("t");
+      mctx.out << "  id " << tmp << ";\n";
+      emit_body(mctx, ctor->body, tmp, true);
+    } else {
+      mctx.out << "  return self;\n";
+    }
+    mctx.out << "}\n\n";
+
+    mctx.nest_captures.clear();
+    mctx.nest_capture_type.clear();
+    mctx.nest_capture_self.clear();
+
+    // ensure_Name / ensure_NameClass
+    mctx.out << "static void\nensure_" << name << "()\n{\n";
+    mctx.out << "  if (" << name << "_vtable) {\n    return;\n  }\n";
+    mctx.out << "  " << name << "_vtable = vtable_create();\n";
+    for (const Field& f : c.fields) {
+      if (f.is_static) {
+        continue;
+      }
+      if (f.readable || f.accessible) {
+        mctx.out << "  field_register_get(" << name << "_vtable, selector_intern(\""
+                 << mangle_getter(f.name) << "\"), offsetof(" << name << "_, " << f.name
+                 << "));\n";
+        mctx.out << "  vtable_set(" << name << "_vtable, selector_intern(\""
+                 << mangle_getter(f.name) << "\"), " << name << "__" << mangle_getter(f.name)
+                 << ");\n";
+      }
+      if (f.accessible) {
+        mctx.out << "  field_register_set(" << name << "_vtable, selector_intern(\""
+                 << mangle_setter(f.name) << "\"), offsetof(" << name << "_, " << f.name
+                 << "));\n";
+        mctx.out << "  vtable_set(" << name << "_vtable, selector_intern(\""
+                 << mangle_setter(f.name) << "\"), " << name << "__" << mangle_setter(f.name)
+                 << ");\n";
+      }
+    }
+    for (const Method& m : c.methods) {
+      if (m.name.empty() || m.is_static) {
+        continue;
+      }
+      const std::string mangled = mangle_method(m.name, m.params.size());
+      mctx.out << "  vtable_set(" << name << "_vtable, selector_intern(\"" << mangled
+               << "\"), " << name << "__" << mangled << ");\n";
+    }
+    mctx.out << "}\n\n";
+
+    mctx.out << "static void\nensure_" << name << "Class()\n{\n";
+    mctx.out << "  if (" << name << "Class_vtable) {\n    return;\n  }\n";
+    mctx.out << "  ensure_" << name << "();\n";
+    mctx.out << "  " << name << "Class_vtable = vtable_create();\n";
+    mctx.out << "  vtable_set(" << name << "Class_vtable, selector_intern(\"call_o\"), " << name
+             << "Class__call_o);\n";
+    mctx.out << "}\n\n";
+
+    ctx.tmp = mctx.tmp;
+    ctx.closure_id = mctx.closure_id;
+    ctx.prelude << mctx.prelude.str();
+    meth_out << mctx.out.str();
+  }
+  ctx.prelude << meth_out.str();
+}
+
+void
 emit_block_item(Ctx& ctx, const BlockItem& item, const std::string* result_dst)
 {
+  if (item.kind == BlockItem::Kind::Class) {
+    const ClassDecl& c = *item.nested_class;
+    std::unordered_set<std::string> class_locals;
+    for (const Field& f : c.fields) {
+      class_locals.insert(f.name);
+    }
+    for (const Method& m : c.methods) {
+      if (!m.name.empty()) {
+        class_locals.insert(m.name);
+      }
+    }
+    std::vector<std::string> captures;
+    for (const Method& m : c.methods) {
+      std::unordered_set<std::string> scan_locals = class_locals;
+      for (const std::string& p : m.params) {
+        scan_locals.insert(p);
+      }
+      for (const BlockItem& bi : m.body) {
+        if (bi.kind == BlockItem::Kind::VarDecl) {
+          if (bi.expr) {
+            collect_free(*bi.expr, scan_locals, ctx.env_params, captures);
+          }
+          scan_locals.insert(bi.var_name);
+        } else if (bi.kind == BlockItem::Kind::Class) {
+          // Nested-in-nested: ignore for capture scan of outer.
+        } else if (bi.expr) {
+          collect_free(*bi.expr, scan_locals, ctx.env_params, captures);
+        }
+      }
+    }
+    for (const Field& f : c.fields) {
+      if (f.init) {
+        collect_free(*f.init, class_locals, ctx.env_params, captures);
+      }
+    }
+    if (!ctx.nested_emitted.count(c.name)) {
+      emit_nested_class(ctx, c, captures);
+      ctx.nested_emitted.insert(c.name);
+    }
+    ctx.local_classes[c.name] = captures;
+    if (result_dst) {
+      ctx.out << "  {\n";
+      ctx.out << "    ensure_" << c.name << "Class();\n";
+      ctx.out << "    " << c.name << "Class_* _cls = alloc<" << c.name << "Class_>();\n";
+      ctx.out << "    zefc_set_isa(_cls, " << c.name << "Class_vtable);\n";
+      for (const std::string& cap : captures) {
+        if (is_field(ctx, cap)) {
+          ctx.out << "    _cls->" << cap << " = body<" << ctx.current_class->decl->name
+                  << "_>(self)->" << cap << ";\n";
+        } else {
+          ctx.out << "    _cls->" << cap << " = " << cap << ";\n";
+        }
+      }
+      ctx.out << "    " << *result_dst << " = as_id(_cls);\n";
+      ctx.out << "  }\n";
+    }
+    return;
+  }
   if (item.kind == BlockItem::Kind::VarDecl) {
     ctx.out << "  id " << item.var_name;
     if (item.expr) {

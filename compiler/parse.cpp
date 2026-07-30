@@ -1,9 +1,15 @@
 #include "parse.hpp"
 
 #include <stdexcept>
+#include <utility>
 
 namespace zefc {
 namespace compiler {
+
+BlockItem::BlockItem() = default;
+BlockItem::~BlockItem() = default;
+BlockItem::BlockItem(BlockItem&&) noexcept = default;
+BlockItem& BlockItem::operator=(BlockItem&&) noexcept = default;
 
 Parser::Parser(Lexer lex)
   : lex_(std::move(lex))
@@ -304,6 +310,13 @@ Parser::parse_method_body()
 BlockItem
 Parser::parse_block_item()
 {
+  // Nested / scope-local class
+  if (check(TokKind::KwClass)) {
+    BlockItem item;
+    item.kind = BlockItem::Kind::Class;
+    item.nested_class = std::make_unique<ClassDecl>(parse_class());
+    return item;
+  }
   // Local: my name [= expr]
   if (check(TokKind::KwMy)) {
     next();

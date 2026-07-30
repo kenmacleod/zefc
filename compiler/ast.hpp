@@ -10,11 +10,43 @@ namespace compiler {
 struct Expr;
 using ExprPtr = std::unique_ptr<Expr>;
 
+struct Field {
+  std::string name;
+  bool readable = false;
+  bool accessible = false;
+  bool is_static = false;
+  ExprPtr init;
+};
+
+struct ClassDecl;
+
 // Statement inside a `{ ... }` body (methods, functions, lambdas).
 struct BlockItem {
-  enum class Kind { Expr, VarDecl } kind;
+  enum class Kind { Expr, VarDecl, Class } kind = Kind::Expr;
   ExprPtr expr;         // Expr stmt, or VarDecl initializer (may be null)
   std::string var_name; // VarDecl
+  std::unique_ptr<ClassDecl> nested_class; // Kind::Class
+
+  BlockItem();
+  ~BlockItem();
+  BlockItem(BlockItem&&) noexcept;
+  BlockItem& operator=(BlockItem&&) noexcept;
+  BlockItem(const BlockItem&) = delete;
+  BlockItem& operator=(const BlockItem&) = delete;
+};
+
+struct Method {
+  std::string name; // empty = constructor
+  std::vector<std::string> params;
+  std::vector<BlockItem> body; // may be empty
+  bool is_static = false;
+};
+
+struct ClassDecl {
+  std::string name;
+  std::string parent; // empty if none
+  std::vector<Field> fields;
+  std::vector<Method> methods;
 };
 
 struct Expr {
@@ -44,28 +76,6 @@ struct Expr {
   std::vector<std::string> params; // Lambda
   std::vector<BlockItem> body;      // Lambda / While / If-then
   std::vector<BlockItem> else_body; // If-else
-};
-
-struct Field {
-  std::string name;
-  bool readable = false;
-  bool accessible = false;
-  bool is_static = false;
-  ExprPtr init;
-};
-
-struct Method {
-  std::string name; // empty = constructor
-  std::vector<std::string> params;
-  std::vector<BlockItem> body; // may be empty
-  bool is_static = false;
-};
-
-struct ClassDecl {
-  std::string name;
-  std::string parent; // empty if none
-  std::vector<Field> fields;
-  std::vector<Method> methods;
 };
 
 struct FuncDecl {
