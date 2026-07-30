@@ -18,6 +18,7 @@ enum class TokKind {
   KwAccessible,
   KwMy,
   KwStatic,
+  KwPrivate,
   KwWhile,
   KwIf,
   KwElse,
@@ -40,6 +41,7 @@ enum class TokKind {
   StarEq,
   Slash,
   Percent,
+  Amp, // &
   Eq,
   EqEq,
   Lt,

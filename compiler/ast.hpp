@@ -58,6 +58,7 @@ struct Method {
   std::string name; // empty = constructor
   std::vector<std::string> params;
   std::vector<BlockItem> body; // may be empty
+  bool is_static = false;
 };
 
 struct ClassDecl {

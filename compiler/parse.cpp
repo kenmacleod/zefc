@@ -173,10 +173,25 @@ Parser::parse_class()
   expect(TokKind::LBrace, "{");
   while (!check(TokKind::RBrace) && !check(TokKind::Eof)) {
     bool is_static = false;
+    bool is_private = false;
     if (check(TokKind::KwStatic)) {
       next();
       is_static = true;
     }
+    if (check(TokKind::KwPrivate)) {
+      next();
+      is_private = true;
+    }
+    // Allow `private static` / `static private` either order.
+    if (!is_static && check(TokKind::KwStatic)) {
+      next();
+      is_static = true;
+    }
+    if (!is_private && check(TokKind::KwPrivate)) {
+      next();
+      is_private = true;
+    }
+    (void)is_private; // access checks not enforced in transpiler yet
     if (check(TokKind::KwReadable) || check(TokKind::KwAccessible) || check(TokKind::KwMy)) {
       const bool is_my = check(TokKind::KwMy);
       const bool is_acc = check(TokKind::KwAccessible);
@@ -204,10 +219,9 @@ Parser::parse_class()
         break;
       }
     } else if (check(TokKind::KwFn)) {
-      if (is_static) {
-        throw std::runtime_error("static methods not supported yet");
-      }
-      c.methods.push_back(parse_method());
+      Method m = parse_method();
+      m.is_static = is_static;
+      c.methods.push_back(std::move(m));
     } else {
       Token t = peek();
       throw std::runtime_error("unexpected token in class body at line " +
@@ -433,7 +447,7 @@ Parser::parse_expr()
 ExprPtr
 Parser::parse_assign()
 {
-  ExprPtr e = parse_equality();
+  ExprPtr e = parse_bitand();
   if (check(TokKind::Eq) || check(TokKind::PlusEq) || check(TokKind::StarEq)) {
     std::string op = "=";
     if (check(TokKind::PlusEq)) {
@@ -448,6 +462,23 @@ Parser::parse_assign()
     a->lhs = std::move(e);
     a->rhs = parse_assign();
     return a;
+  }
+  return e;
+}
+
+ExprPtr
+Parser::parse_bitand()
+{
+  // Zef: `&` binds looser than `==` (equality-exprs are operands).
+  ExprPtr e = parse_equality();
+  while (check(TokKind::Amp)) {
+    next();
+    auto b = std::make_unique<Expr>();
+    b->kind = Expr::Kind::Binary;
+    b->text = "&";
+    b->lhs = std::move(e);
+    b->rhs = parse_equality();
+    e = std::move(b);
   }
   return e;
 }

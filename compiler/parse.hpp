@@ -29,6 +29,7 @@ private:
   ExprPtr parse_expr();
   ExprPtr parse_assign();
   ExprPtr parse_equality();
+  ExprPtr parse_bitand();
   ExprPtr parse_relational();
   ExprPtr parse_add();
   ExprPtr parse_mul();

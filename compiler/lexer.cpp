@@ -115,6 +115,8 @@ Lexer::lex_one()
       t.kind = TokKind::KwMy;
     } else if (id == "static") {
       t.kind = TokKind::KwStatic;
+    } else if (id == "private") {
+      t.kind = TokKind::KwPrivate;
     } else if (id == "while") {
       t.kind = TokKind::KwWhile;
     } else if (id == "if") {
@@ -208,6 +210,9 @@ Lexer::lex_one()
     break;
   case '%':
     t.kind = TokKind::Percent;
+    break;
+  case '&':
+    t.kind = TokKind::Amp;
     break;
   case '=':
     if (ch() == '=') {

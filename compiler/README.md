@@ -6,7 +6,7 @@ Transpiles `.zef` → C++ that uses the shared runtime dispatch ABI (`ZEFC_SEND*
 
 ## Status
 
-Milestones so far: 33 compiler cases green — includes `else`/`return`, bare fn/property get-set, `String(...)`, plus earlier control flow and closures.
+Milestones so far: 42 compiler cases green — `private`, static `call`, bitwise `&`, bare self-methods, arrays, control flow, closures.
 
 ```bash
 ninja -C build compiler/zefc

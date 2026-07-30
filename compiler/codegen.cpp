@@ -90,7 +90,9 @@ struct ClassInfo {
   const ClassDecl* decl = nullptr;
   std::unordered_set<std::string> field_names;
   std::unordered_set<std::string> param_names;
+  std::unordered_set<std::string> method_names; // zero-arg instance methods (bare Ident call)
   bool has_static = false;
+  bool has_static_call0 = false; // static fn call with 0 params
 };
 
 struct FuncInfo {
@@ -401,6 +403,10 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
     if (is_field(ctx, e.text)) {
       const std::string& cls = ctx.current_class->decl->name;
       ctx.out << "  " << dst << " = body<" << cls << "_>(self)->" << e.text << ";\n";
+    } else if (ctx.current_class && ctx.current_class->method_names.count(e.text) &&
+               !ctx.current_class->param_names.count(e.text)) {
+      // Bare method name → self.method (e.g. `fn thingy stuff`)
+      emit_send(ctx, "self", mangle_method(e.text, 0), {}, dst);
     } else if (ctx.functions.count(e.text) && ctx.functions[e.text].arity == 0) {
       // Bare zero-arg function name → call (println(foo), property getters).
       ctx.out << "  " << dst << " = fn_" << e.text << "();\n";
@@ -504,6 +510,9 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
     } else if (op == "<=") {
       ctx.out << "  " << dst << " = Int__from_i64((Int__to_i64(" << a << ") <= Int__to_i64(" << b
               << ")) ? 1 : 0);\n";
+    } else if (op == "&") {
+      ctx.out << "  " << dst << " = Int__from_i64(Int__to_i64(" << a << ") & Int__to_i64(" << b
+              << "));\n";
     } else {
       throw std::runtime_error("unsupported binary op: " + e.text);
     }
@@ -773,11 +782,18 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
         return;
       }
       if (ctx.classes.count(callee)) {
-        ctx.out << "  " << dst << " = " << callee << "__new(null_id(), 0";
-        for (const std::string& a : arg_tmps) {
-          ctx.out << ", " << a;
+        const ClassInfo& ci = ctx.classes[callee];
+        // Class() with static call and no ctor args → invoke class.call (Zef staticcall).
+        if (arg_tmps.empty() && ci.has_static_call0) {
+          ctx.out << "  " << dst << " = " << callee << "__call_o(as_id(&g_" << callee
+                  << "Class), " << sel_expr("call_o") << ");\n";
+        } else {
+          ctx.out << "  " << dst << " = " << callee << "__new(null_id(), 0";
+          for (const std::string& a : arg_tmps) {
+            ctx.out << ", " << a;
+          }
+          ctx.out << ");\n";
         }
-        ctx.out << ");\n";
         return;
       }
       if (ctx.functions.count(callee)) {
@@ -887,6 +903,16 @@ collect_classes(Ctx& ctx, const Program& program)
       }
       if (f.is_static) {
         info.has_static = true;
+      }
+    }
+    for (const Method& m : s.class_decl.methods) {
+      if (m.is_static) {
+        info.has_static = true;
+        if (m.name == "call" && m.params.empty()) {
+          info.has_static_call0 = true;
+        }
+      } else if (!m.name.empty() && m.params.empty()) {
+        info.method_names.insert(m.name);
       }
     }
     // Inherit parent instance field names for is_field in methods
@@ -1123,7 +1149,7 @@ emit_class(Ctx& ctx, const ClassDecl& c)
     if (pit != ctx.classes.end()) {
       const ClassDecl& parent = *pit->second.decl;
       for (const Method& pm : parent.methods) {
-        if (pm.name.empty()) {
+        if (pm.name.empty() || pm.is_static) {
           continue;
         }
         const std::string mangled = mangle_method(pm.name, pm.params.size());
@@ -1172,6 +1198,9 @@ emit_class(Ctx& ctx, const ClassDecl& c)
     if (m.name.empty()) {
       continue;
     }
+    if (m.is_static) {
+      continue;
+    }
     const std::string mangled = mangle_method(m.name, m.params.size());
     ctx.out << "  vtable_set(" << name << "_vtable, selector_intern(\"" << mangled << "\"), "
             << name << "__" << mangled << ");\n";
@@ -1180,6 +1209,14 @@ emit_class(Ctx& ctx, const ClassDecl& c)
     ctx.out << "  if (!g_" << name << "Class_inited) {\n";
     ctx.out << "    " << name << "Class_vtable = vtable_create();\n";
     ctx.out << "    zefc_set_isa(&g_" << name << "Class, " << name << "Class_vtable);\n";
+    for (const Method& m : c.methods) {
+      if (!m.is_static || m.name.empty()) {
+        continue;
+      }
+      const std::string mangled = mangle_method(m.name, m.params.size());
+      ctx.out << "    vtable_set(" << name << "Class_vtable, selector_intern(\"" << mangled
+              << "\"), " << name << "__" << mangled << ");\n";
+    }
     for (const Field& f : c.fields) {
       if (!f.is_static || !f.init) {
         continue;
@@ -1248,18 +1285,43 @@ codegen_cpp(const Program& program, const std::string& source_path)
         continue;
       }
       const FuncDecl& f = s.func_decl;
-      ctx.out << "static id\nfn_" << f.name << "(";
+      // Duplicate param names: only the last binding is visible (Zef); rename earlier ones.
+      std::vector<std::string> cpp_params;
+      cpp_params.reserve(f.params.size());
       for (size_t i = 0; i < f.params.size(); ++i) {
+        bool shadowed = false;
+        for (size_t j = i + 1; j < f.params.size(); ++j) {
+          if (f.params[j] == f.params[i]) {
+            shadowed = true;
+            break;
+          }
+        }
+        if (shadowed) {
+          cpp_params.push_back(f.params[i] + "__" + std::to_string(i));
+        } else {
+          cpp_params.push_back(f.params[i]);
+        }
+      }
+      ctx.out << "static id\nfn_" << f.name << "(";
+      for (size_t i = 0; i < cpp_params.size(); ++i) {
         if (i) {
           ctx.out << ", ";
         }
-        ctx.out << "id " << f.params[i];
+        ctx.out << "id " << cpp_params[i];
       }
       ctx.out << ")\n{\n";
+      for (size_t i = 0; i < cpp_params.size(); ++i) {
+        if (cpp_params[i] != f.params[i]) {
+          ctx.out << "  (void)" << cpp_params[i] << ";\n";
+        }
+      }
       ctx.current_class = nullptr;
       ctx.env_params = ctx.toplevel_vars;
-      for (const std::string& p : f.params) {
-        ctx.env_params.push_back(p);
+      for (const std::string& p : cpp_params) {
+        // Only non-shadowed names (original names) are usable in the body.
+        if (p.find("__") == std::string::npos) {
+          ctx.env_params.push_back(p);
+        }
       }
       const std::string tmp = ctx.fresh("t");
       ctx.out << "  id " << tmp << ";\n";
