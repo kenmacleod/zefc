@@ -737,7 +737,8 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
       emit_expr(ctx, *e.rhs, v);
       ctx.out << "  return " << v << ";\n";
     } else {
-      ctx.out << "  return null_id();\n";
+      // Bare `return` yields 0 (Zef: DoReturn(IntLiteral(0))).
+      ctx.out << "  return Int__from_i64(0);\n";
     }
     ctx.out << "  " << dst << " = null_id();\n";
     return;
