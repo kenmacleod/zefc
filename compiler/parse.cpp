@@ -69,9 +69,50 @@ Parser::parse_stmt()
     return s;
   }
   if (check(TokKind::KwFn)) {
+    // Top-level named function vs expression starting with fn — named has Ident.
+    Token save = peek();
+    (void)save;
+    // parse_func requires name; but `fn (...)` at top level is rare. Peek ahead:
+    next(); // fn
+    if (check(TokKind::Ident)) {
+      // Rewind by re-parsing: we consumed fn. Build FuncDecl manually.
+      FuncDecl f;
+      f.name = next().text;
+      if (check(TokKind::LParen)) {
+        next();
+        if (!check(TokKind::RParen)) {
+          f.params.push_back(expect(TokKind::Ident, "parameter").text);
+          while (check(TokKind::Comma)) {
+            next();
+            f.params.push_back(expect(TokKind::Ident, "parameter").text);
+          }
+        }
+        expect(TokKind::RParen, ")");
+      }
+      f.body = parse_method_body();
+      Stmt s;
+      s.kind = Stmt::Kind::Func;
+      s.func_decl = std::move(f);
+      return s;
+    }
+    // Anonymous fn expression at top level — rebuild Lambda.
+    auto lam = std::make_unique<Expr>();
+    lam->kind = Expr::Kind::Lambda;
+    if (check(TokKind::LParen)) {
+      next();
+      if (!check(TokKind::RParen)) {
+        lam->params.push_back(expect(TokKind::Ident, "parameter").text);
+        while (check(TokKind::Comma)) {
+          next();
+          lam->params.push_back(expect(TokKind::Ident, "parameter").text);
+        }
+      }
+      expect(TokKind::RParen, ")");
+    }
+    lam->body = parse_method_body();
     Stmt s;
-    s.kind = Stmt::Kind::Func;
-    s.func_decl = parse_func();
+    s.kind = Stmt::Kind::Expr;
+    s.expr = std::move(lam);
     return s;
   }
   // Top-level: my name [= expr]
@@ -84,6 +125,27 @@ Parser::parse_stmt()
       next();
       s.expr = parse_expr();
     }
+    return s;
+  }
+  if (check(TokKind::KwWhile)) {
+    Stmt s;
+    s.kind = Stmt::Kind::Expr;
+    s.expr = parse_while();
+    return s;
+  }
+  if (check(TokKind::KwIf)) {
+    Stmt s;
+    s.kind = Stmt::Kind::Expr;
+    s.expr = parse_if();
+    return s;
+  }
+  if (check(TokKind::KwBreak) || check(TokKind::KwContinue)) {
+    auto e = std::make_unique<Expr>();
+    e->kind = check(TokKind::KwBreak) ? Expr::Kind::Break : Expr::Kind::Continue;
+    next();
+    Stmt s;
+    s.kind = Stmt::Kind::Expr;
+    s.expr = std::move(e);
     return s;
   }
   Stmt s;
@@ -236,9 +298,6 @@ Parser::parse_block_item()
   }
   // Named local function: fn name(...) body  →  my name = fn (...) body
   if (check(TokKind::KwFn)) {
-    // Peek: fn Ident → nested named; fn ( → expression lambda via parse_expr
-    Token fn_tok = peek();
-    (void)fn_tok;
     next(); // consume fn
     if (check(TokKind::Ident)) {
       BlockItem item;
@@ -261,7 +320,7 @@ Parser::parse_block_item()
       item.expr = std::move(lam);
       return item;
     }
-    // Put `fn` back… we already consumed it. Rebuild anonymous lambda here.
+    // Anonymous lambda as expression statement.
     auto lam = std::make_unique<Expr>();
     lam->kind = Expr::Kind::Lambda;
     if (check(TokKind::LParen)) {
@@ -281,10 +340,57 @@ Parser::parse_block_item()
     item.expr = std::move(lam);
     return item;
   }
+  if (check(TokKind::KwWhile)) {
+    BlockItem item;
+    item.kind = BlockItem::Kind::Expr;
+    item.expr = parse_while();
+    return item;
+  }
+  if (check(TokKind::KwIf)) {
+    BlockItem item;
+    item.kind = BlockItem::Kind::Expr;
+    item.expr = parse_if();
+    return item;
+  }
+  if (check(TokKind::KwBreak) || check(TokKind::KwContinue)) {
+    auto e = std::make_unique<Expr>();
+    e->kind = check(TokKind::KwBreak) ? Expr::Kind::Break : Expr::Kind::Continue;
+    next();
+    BlockItem item;
+    item.kind = BlockItem::Kind::Expr;
+    item.expr = std::move(e);
+    return item;
+  }
   BlockItem item;
   item.kind = BlockItem::Kind::Expr;
   item.expr = parse_expr();
   return item;
+}
+
+ExprPtr
+Parser::parse_while()
+{
+  expect(TokKind::KwWhile, "while");
+  expect(TokKind::LParen, "(");
+  auto e = std::make_unique<Expr>();
+  e->kind = Expr::Kind::While;
+  e->lhs = parse_expr();
+  expect(TokKind::RParen, ")");
+  e->body = parse_method_body();
+  return e;
+}
+
+ExprPtr
+Parser::parse_if()
+{
+  expect(TokKind::KwIf, "if");
+  expect(TokKind::LParen, "(");
+  auto e = std::make_unique<Expr>();
+  e->kind = Expr::Kind::If;
+  e->lhs = parse_expr();
+  expect(TokKind::RParen, ")");
+  e->body = parse_method_body();
+  return e;
 }
 
 ExprPtr
@@ -313,12 +419,40 @@ Parser::parse_assign()
 ExprPtr
 Parser::parse_equality()
 {
-  ExprPtr e = parse_add();
+  ExprPtr e = parse_relational();
   while (check(TokKind::EqEq)) {
     next();
     auto b = std::make_unique<Expr>();
     b->kind = Expr::Kind::Binary;
     b->text = "==";
+    b->lhs = std::move(e);
+    b->rhs = parse_relational();
+    e = std::move(b);
+  }
+  return e;
+}
+
+ExprPtr
+Parser::parse_relational()
+{
+  ExprPtr e = parse_add();
+  for (;;) {
+    std::string op;
+    if (check(TokKind::Lt)) {
+      op = "<";
+    } else if (check(TokKind::LtEq)) {
+      op = "<=";
+    } else if (check(TokKind::Gt)) {
+      op = ">";
+    } else if (check(TokKind::GtEq)) {
+      op = ">=";
+    } else {
+      break;
+    }
+    next();
+    auto b = std::make_unique<Expr>();
+    b->kind = Expr::Kind::Binary;
+    b->text = op;
     b->lhs = std::move(e);
     b->rhs = parse_add();
     e = std::move(b);
@@ -354,11 +488,17 @@ ExprPtr
 Parser::parse_mul()
 {
   ExprPtr e = parse_unary();
-  while (check(TokKind::Star)) {
+  while (check(TokKind::Star) || check(TokKind::Slash) || check(TokKind::Percent)) {
+    std::string op = "*";
+    if (check(TokKind::Slash)) {
+      op = "/";
+    } else if (check(TokKind::Percent)) {
+      op = "%";
+    }
     next();
     auto b = std::make_unique<Expr>();
     b->kind = Expr::Kind::Binary;
-    b->text = "*";
+    b->text = op;
     b->lhs = std::move(e);
     b->rhs = parse_unary();
     e = std::move(b);
@@ -412,12 +552,7 @@ Parser::parse_primary()
     next();
     auto e = std::make_unique<Expr>();
     e->kind = Expr::Kind::Lambda;
-    // fn name? — nested named not supported; require (params) or bare body
-    if (check(TokKind::Ident)) {
-      // treat as error for now or skip name
-      throw std::runtime_error("nested named fn not supported yet at line " +
-                               std::to_string(peek().line));
-    }
+    // Optional params; otherwise expression/block body (e.g. `fn println("hi")`).
     if (check(TokKind::LParen)) {
       next();
       if (!check(TokKind::RParen)) {

@@ -115,6 +115,14 @@ Lexer::lex_one()
       t.kind = TokKind::KwMy;
     } else if (id == "static") {
       t.kind = TokKind::KwStatic;
+    } else if (id == "while") {
+      t.kind = TokKind::KwWhile;
+    } else if (id == "if") {
+      t.kind = TokKind::KwIf;
+    } else if (id == "break") {
+      t.kind = TokKind::KwBreak;
+    } else if (id == "continue") {
+      t.kind = TokKind::KwContinue;
     } else {
       t.kind = TokKind::Ident;
     }
@@ -180,12 +188,34 @@ Lexer::lex_one()
   case '*':
     t.kind = TokKind::Star;
     break;
+  case '/':
+    t.kind = TokKind::Slash;
+    break;
+  case '%':
+    t.kind = TokKind::Percent;
+    break;
   case '=':
     if (ch() == '=') {
       get();
       t.kind = TokKind::EqEq;
     } else {
       t.kind = TokKind::Eq;
+    }
+    break;
+  case '<':
+    if (ch() == '=') {
+      get();
+      t.kind = TokKind::LtEq;
+    } else {
+      t.kind = TokKind::Lt;
+    }
+    break;
+  case '>':
+    if (ch() == '=') {
+      get();
+      t.kind = TokKind::GtEq;
+    } else {
+      t.kind = TokKind::Gt;
     }
     break;
   case ':':

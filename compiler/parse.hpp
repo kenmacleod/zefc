@@ -29,11 +29,14 @@ private:
   ExprPtr parse_expr();
   ExprPtr parse_assign();
   ExprPtr parse_equality();
+  ExprPtr parse_relational();
   ExprPtr parse_add();
   ExprPtr parse_mul();
   ExprPtr parse_unary();
   ExprPtr parse_postfix();
   ExprPtr parse_primary();
+  ExprPtr parse_while();
+  ExprPtr parse_if();
   std::vector<ExprPtr> parse_arg_list();
 };
 

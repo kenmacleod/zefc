@@ -68,6 +68,9 @@ sel_expr(const std::string& mangled)
   if (mangled == "mul_o") {
     return "ZEFC_SEL_mul_o";
   }
+  if (mangled == "div_o") {
+    return "ZEFC_SEL_div_o";
+  }
   return "ZEFC_SITE(\"" + mangled + "\")";
 }
 
@@ -193,6 +196,24 @@ collect_free(const Expr& e, const std::unordered_set<std::string>& locals,
     for (const auto& a : e.args) {
       collect_free(*a, locals, env, captures);
     }
+    break;
+  case Expr::Kind::While:
+  case Expr::Kind::If:
+    if (e.lhs) {
+      collect_free(*e.lhs, locals, env, captures);
+    }
+    for (const BlockItem& item : e.body) {
+      if (item.kind == BlockItem::Kind::VarDecl) {
+        if (item.expr) {
+          collect_free(*item.expr, locals, env, captures);
+        }
+      } else if (item.expr) {
+        collect_free(*item.expr, locals, env, captures);
+      }
+    }
+    break;
+  case Expr::Kind::Break:
+  case Expr::Kind::Continue:
     break;
   case Expr::Kind::Lambda: {
     // Nested lambda: free vars relative to nested_env = env ∪ locals.
@@ -352,7 +373,12 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
     ctx.out << "  " << dst << " = String__from_utf8(\"" << mangle_escape(e.text) << "\");\n";
     return;
   case Expr::Kind::Number:
-    ctx.out << "  " << dst << " = Int__from_i64(" << e.text << ");\n";
+    if (e.text.size() >= 2 && e.text[0] == '0' && (e.text[1] == 'x' || e.text[1] == 'X')) {
+      ctx.out << "  " << dst << " = Int__from_i64(static_cast<long long>(" << e.text
+              << "ULL));\n";
+    } else {
+      ctx.out << "  " << dst << " = Int__from_i64(" << e.text << ");\n";
+    }
     return;
   case Expr::Kind::Dot: {
     // super.method → direct superclass method call
@@ -382,21 +408,78 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
     const std::string a = ctx.fresh("t");
     const std::string b = ctx.fresh("t");
     ctx.out << "  id " << a << ";\n  id " << b << ";\n";
-    emit_expr(ctx, *e.lhs, a);
-    emit_expr(ctx, *e.rhs, b);
-    if (e.text == "+") {
+    // Desugar > / >= to swapped < / <= (Zef semantics).
+    std::string op = e.text;
+    const Expr* left = e.lhs.get();
+    const Expr* right = e.rhs.get();
+    if (op == ">") {
+      op = "<";
+      left = e.rhs.get();
+      right = e.lhs.get();
+    } else if (op == ">=") {
+      op = "<=";
+      left = e.rhs.get();
+      right = e.lhs.get();
+    }
+    emit_expr(ctx, *left, a);
+    emit_expr(ctx, *right, b);
+    if (op == "+") {
       ctx.out << "  " << dst << " = ZEFC_SEND1(" << a << ", ZEFC_SEL_add_o, " << b << ");\n";
-    } else if (e.text == "-") {
+    } else if (op == "-") {
       ctx.out << "  " << dst << " = ZEFC_SEND1(" << a << ", ZEFC_SEL_sub_o, " << b << ");\n";
-    } else if (e.text == "*") {
+    } else if (op == "*") {
       ctx.out << "  " << dst << " = ZEFC_SEND1(" << a << ", ZEFC_SEL_mul_o, " << b << ");\n";
-    } else if (e.text == "==") {
+    } else if (op == "/") {
+      ctx.out << "  " << dst << " = ZEFC_SEND1(" << a << ", ZEFC_SEL_div_o, " << b << ");\n";
+    } else if (op == "%") {
+      ctx.out << "  " << dst << " = ZEFC_SEND1(" << a << ", ZEFC_SITE(\"mod_o\"), " << b
+              << ");\n";
+    } else if (op == "==") {
       ctx.out << "  " << dst << " = Int__from_i64((" << a << " == " << b << ") ? 1 : 0);\n";
+    } else if (op == "<") {
+      ctx.out << "  " << dst << " = Int__from_i64((Int__to_i64(" << a << ") < Int__to_i64(" << b
+              << ")) ? 1 : 0);\n";
+    } else if (op == "<=") {
+      ctx.out << "  " << dst << " = Int__from_i64((Int__to_i64(" << a << ") <= Int__to_i64(" << b
+              << ")) ? 1 : 0);\n";
     } else {
       throw std::runtime_error("unsupported binary op: " + e.text);
     }
     return;
   }
+  case Expr::Kind::While: {
+    const std::string cond = ctx.fresh("t");
+    ctx.out << "  while (true) {\n";
+    ctx.out << "  id " << cond << ";\n";
+    emit_expr(ctx, *e.lhs, cond);
+    ctx.out << "  if (!Int__to_i64(" << cond << ")) {\n    break;\n  }\n";
+    for (const BlockItem& item : e.body) {
+      emit_block_item(ctx, item, nullptr);
+    }
+    ctx.out << "  }\n";
+    ctx.out << "  " << dst << " = null_id();\n";
+    return;
+  }
+  case Expr::Kind::If: {
+    const std::string cond = ctx.fresh("t");
+    ctx.out << "  id " << cond << ";\n";
+    emit_expr(ctx, *e.lhs, cond);
+    ctx.out << "  if (Int__to_i64(" << cond << ")) {\n";
+    for (const BlockItem& item : e.body) {
+      emit_block_item(ctx, item, nullptr);
+    }
+    ctx.out << "  }\n";
+    ctx.out << "  " << dst << " = null_id();\n";
+    return;
+  }
+  case Expr::Kind::Break:
+    ctx.out << "  break;\n";
+    ctx.out << "  " << dst << " = null_id();\n";
+    return;
+  case Expr::Kind::Continue:
+    ctx.out << "  continue;\n";
+    ctx.out << "  " << dst << " = null_id();\n";
+    return;
   case Expr::Kind::Unary: {
     if (e.text != "-") {
       throw std::runtime_error("unsupported unary op: " + e.text);
@@ -514,14 +597,13 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
         ctx.out << ");\n";
         return;
       }
-      if (callee == "println") {
+      if (callee == "println" || callee == "print") {
         if (arg_tmps.empty()) {
-          throw std::runtime_error("println expects at least 1 argument");
+          throw std::runtime_error(callee + " expects at least 1 argument");
         }
         if (arg_tmps.size() == 1) {
-          ctx.out << "  println(" << arg_tmps[0] << ");\n";
+          ctx.out << "  " << callee << "(" << arg_tmps[0] << ");\n";
         } else {
-          // Multi-arg: concatenate toString of each arg, then println.
           const std::string acc = ctx.fresh("t");
           ctx.out << "  id " << acc << " = String__from_utf8(\"\");\n";
           for (const std::string& a : arg_tmps) {
@@ -530,7 +612,7 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
             ctx.out << "  " << acc << " = ZEFC_SEND1(" << acc << ", ZEFC_SEL_add_o, " << s
                     << ");\n";
           }
-          ctx.out << "  println(" << acc << ");\n";
+          ctx.out << "  " << callee << "(" << acc << ");\n";
         }
         ctx.out << "  " << dst << " = null_id();\n";
         return;

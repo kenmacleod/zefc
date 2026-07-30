@@ -27,6 +27,8 @@ static id Int__toString_o(id self, int selector, ...);
 static id Int__add_o(id self, int selector, ...);
 static id Int__sub_o(id self, int selector, ...);
 static id Int__mul_o(id self, int selector, ...);
+static id Int__div_o(id self, int selector, ...);
+static id Int__mod_o(id self, int selector, ...);
 
 static id
 encode_int32(int value)
@@ -118,6 +120,28 @@ Int__mul_o(id self, int selector, ...)
   return Int__from_i64_impl(Int__to_i64_impl(self) * Int__to_i64_impl(other));
 }
 
+static id
+Int__div_o(id self, int selector, ...)
+{
+  (void)selector;
+  std::va_list ap;
+  va_start(ap, selector);
+  id other = va_arg(ap, id);
+  va_end(ap);
+  return Int__from_i64_impl(Int__to_i64_impl(self) / Int__to_i64_impl(other));
+}
+
+static id
+Int__mod_o(id self, int selector, ...)
+{
+  (void)selector;
+  std::va_list ap;
+  va_start(ap, selector);
+  id other = va_arg(ap, id);
+  va_end(ap);
+  return Int__from_i64_impl(Int__to_i64_impl(self) % Int__to_i64_impl(other));
+}
+
 void
 int_runtime_init()
 {
@@ -127,6 +151,8 @@ int_runtime_init()
   vtable_set(Int_vtable, ZEFC_SEL_add_o, Int__add_o);
   vtable_set(Int_vtable, ZEFC_SEL_sub_o, Int__sub_o);
   vtable_set(Int_vtable, ZEFC_SEL_mul_o, Int__mul_o);
+  vtable_set(Int_vtable, ZEFC_SEL_div_o, Int__div_o);
+  vtable_set(Int_vtable, selector_intern("mod_o"), Int__mod_o);
   selector_sites_patch();
 }
 
@@ -169,6 +195,12 @@ zefc_int_send1(id self, int selector, id arg0)
   }
   if (selector == ZEFC_SEL_mul_o) {
     return Int__from_i64_impl(a * b);
+  }
+  if (selector == ZEFC_SEL_div_o) {
+    return Int__from_i64_impl(a / b);
+  }
+  if (selector == selector_intern("mod_o")) {
+    return Int__from_i64_impl(a % b);
   }
   std::fprintf(stderr, "doesNotUnderstand: immediate Int selector=%d\n", selector);
   std::exit(1);

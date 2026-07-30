@@ -28,6 +28,10 @@ struct Expr {
     Unary,
     Assign,
     Lambda,
+    While,
+    If,
+    Break,
+    Continue,
   } kind;
 
   std::string text; // Ident / String / Number / Dot field / Binary op / Assign "+="
@@ -35,7 +39,7 @@ struct Expr {
   ExprPtr rhs;
   std::vector<ExprPtr> args;
   std::vector<std::string> params; // Lambda
-  std::vector<BlockItem> body;     // Lambda
+  std::vector<BlockItem> body;     // Lambda / While / If-then
 };
 
 struct Field {
