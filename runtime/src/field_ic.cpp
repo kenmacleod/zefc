@@ -12,72 +12,105 @@ namespace {
 
 using FieldKey = std::pair<VTable*, int>;
 
-std::map<FieldKey, FieldGetter>&
-getters()
+std::map<FieldKey, std::intptr_t>&
+get_offsets()
 {
-  static std::map<FieldKey, FieldGetter> map;
+  static std::map<FieldKey, std::intptr_t> map;
   return map;
 }
 
-std::map<FieldKey, FieldSetter>&
-setters()
+std::map<FieldKey, std::intptr_t>&
+set_offsets()
 {
-  static std::map<FieldKey, FieldSetter> map;
+  static std::map<FieldKey, std::intptr_t> map;
   return map;
 }
 
 } // namespace
 
 void
-field_register_get(VTable* vt, int selector, FieldGetter getter)
+field_register_get(VTable* vt, int selector, std::size_t offset)
 {
-  if (!vt || selector <= 0 || !getter) {
+  if (!vt || selector <= 0) {
     std::fprintf(stderr, "field_register_get: invalid args\n");
     std::exit(1);
   }
-  getters()[FieldKey{vt, selector}] = getter;
+  get_offsets()[FieldKey{vt, selector}] = static_cast<std::intptr_t>(offset);
 }
 
 void
-field_register_set(VTable* vt, int selector, FieldSetter setter)
+field_register_set(VTable* vt, int selector, std::size_t offset)
 {
-  if (!vt || selector <= 0 || !setter) {
+  if (!vt || selector <= 0) {
     std::fprintf(stderr, "field_register_set: invalid args\n");
     std::exit(1);
   }
-  setters()[FieldKey{vt, selector}] = setter;
+  set_offsets()[FieldKey{vt, selector}] = static_cast<std::intptr_t>(offset);
+}
+
+bool
+field_lookup_get(VTable* vt, int selector, std::intptr_t* out_offset)
+{
+  const auto it = get_offsets().find(FieldKey{vt, selector});
+  if (it == get_offsets().end()) {
+    return false;
+  }
+  *out_offset = it->second;
+  return true;
+}
+
+bool
+field_lookup_set(VTable* vt, int selector, std::intptr_t* out_offset)
+{
+  const auto it = set_offsets().find(FieldKey{vt, selector});
+  if (it == set_offsets().end()) {
+    return false;
+  }
+  *out_offset = it->second;
+  return true;
 }
 
 id
-zefc_ic_get_miss(id obj, FieldSite* site)
+zefc_ic_get_miss_send(id obj, FieldSite* site)
 {
-  if (!id_is_object(obj)) {
-    return ZEFC_SEND0(obj, site->selector);
-  }
-  const auto it = getters().find(FieldKey{obj->isa_, site->selector});
-  if (it != getters().end()) {
-    site->guard = obj->isa_;
-    site->getter = it->second;
-    site->setter = nullptr;
-    return site->getter(obj);
-  }
   return ZEFC_SEND0(obj, site->selector);
 }
 
 id
-zefc_ic_set_miss(id obj, FieldSite* site, id value)
+zefc_ic_set_miss_send(id obj, FieldSite* site, id value)
+{
+  return ZEFC_SEND1(obj, site->selector, value);
+}
+
+id
+zefc_ic_get_offset_miss(id obj, FieldSite* site)
 {
   if (!id_is_object(obj)) {
-    return ZEFC_SEND1(obj, site->selector, value);
+    return zefc_ic_get_miss_send(obj, site);
   }
-  const auto it = setters().find(FieldKey{obj->isa_, site->selector});
-  if (it != setters().end()) {
-    site->guard = obj->isa_;
-    site->setter = it->second;
-    site->getter = nullptr;
-    return site->setter(obj, value);
+  std::intptr_t off = 0;
+  if (!field_lookup_get(obj->isa_, site->selector, &off)) {
+    return zefc_ic_get_miss_send(obj, site);
   }
-  return ZEFC_SEND1(obj, site->selector, value);
+  site->guard = obj->isa_;
+  site->offset = off;
+  return *field_slot(obj, site->offset);
+}
+
+id
+zefc_ic_set_offset_miss(id obj, FieldSite* site, id value)
+{
+  if (!id_is_object(obj)) {
+    return zefc_ic_set_miss_send(obj, site, value);
+  }
+  std::intptr_t off = 0;
+  if (!field_lookup_set(obj->isa_, site->selector, &off)) {
+    return zefc_ic_set_miss_send(obj, site, value);
+  }
+  site->guard = obj->isa_;
+  site->offset = off;
+  *field_slot(obj, site->offset) = value;
+  return null_id();
 }
 
 } // namespace zefc

@@ -7,6 +7,8 @@
 #include "zefc/runtime.hpp"
 #include "smoke_cases.hpp"
 
+#include <cstddef>
+
 namespace zefc {
 namespace smoke {
 
@@ -80,12 +82,12 @@ ensure()
   vtable_set(FooClass_vtable, slot_c, FooClass__c_o);
   vtable_set(FooClass_vtable, slot_d, FooClass__d_o);
   vtable_set(FooClass_vtable, slot_set_d, FooClass__set_d_o);
-  field_register_get(Foo_vtable, slot_a, Foo_get_a);
-  field_register_get(Foo_vtable, slot_b, Foo_get_b);
-  field_register_set(Foo_vtable, slot_set_b, Foo_set_b);
-  field_register_get(FooClass_vtable, slot_c, FooClass_get_c);
-  field_register_get(FooClass_vtable, slot_d, FooClass_get_d);
-  field_register_set(FooClass_vtable, slot_set_d, FooClass_set_d);
+  field_register_get(Foo_vtable, slot_a, offsetof(Foo_, a));
+  field_register_get(Foo_vtable, slot_b, offsetof(Foo_, b));
+  field_register_set(Foo_vtable, slot_set_b, offsetof(Foo_, b));
+  field_register_get(FooClass_vtable, slot_c, offsetof(FooClass_, c));
+  field_register_get(FooClass_vtable, slot_d, offsetof(FooClass_, d));
+  field_register_set(FooClass_vtable, slot_set_d, offsetof(FooClass_, d));
   g_FooClass.isa_ = FooClass_vtable;
   g_FooClass.c = Int__from_i64(3);
   g_FooClass.d = Int__from_i64(4);
@@ -109,16 +111,16 @@ smoke_accessors()
 {
   ensure();
   id o = Foo__new();
-  println(ZEFC_IC_GET(o, slot_a));
-  println(ZEFC_IC_GET(o, slot_b));
-  (void)ZEFC_IC_SET(o, slot_set_b, Int__from_i64(42));
-  println(ZEFC_IC_GET(o, slot_b));
+  println(ZEFC_IC_GET(o, slot_a, Foo_, a));
+  println(ZEFC_IC_GET(o, slot_b, Foo_, b));
+  (void)ZEFC_IC_SET(o, slot_set_b, Foo_, b, Int__from_i64(42));
+  println(ZEFC_IC_GET(o, slot_b, Foo_, b));
 
   id Foo = as_id(&g_FooClass);
-  println(ZEFC_IC_GET(Foo, slot_c));
-  println(ZEFC_IC_GET(Foo, slot_d));
-  (void)ZEFC_IC_SET(Foo, slot_set_d, Int__from_i64(666));
-  println(ZEFC_IC_GET(Foo, slot_d));
+  println(ZEFC_IC_GET(Foo, slot_c, FooClass_, c));
+  println(ZEFC_IC_GET(Foo, slot_d, FooClass_, d));
+  (void)ZEFC_IC_SET(Foo, slot_set_d, FooClass_, d, Int__from_i64(666));
+  println(ZEFC_IC_GET(Foo, slot_d, FooClass_, d));
 }
 
 } // namespace smoke

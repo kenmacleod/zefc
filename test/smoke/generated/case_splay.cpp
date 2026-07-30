@@ -12,6 +12,7 @@
 #include "zefc/string_api.hpp"
 #include "smoke_cases.hpp"
 
+#include <cstddef>
 #include <cstdint>
 
 namespace zefc {
@@ -164,7 +165,7 @@ PushKey__call_o(id self, int selector, id node)
 {
   (void)selector;
   id result = body<PushKey_>(self)->result;
-  (void)Array__push(result, ZEFC_IC_GET(node, sel_key));
+  (void)Array__push(result, ZEFC_IC_GET(node, sel_key, Node_, key));
   return null_id();
 }
 
@@ -174,12 +175,12 @@ Node__traverse_o(id self, int selector, id func)
   (void)selector;
   id current = self;
   while (truthy(current)) {
-    id left = ZEFC_IC_GET(current, sel_left);
+    id left = ZEFC_IC_GET(current, sel_left, Node_, left);
     if (truthy(left)) {
       (void)ZEFC_SEND1(left, sel_traverse, func);
     }
     (void)ZEFC_SEND1(func, sel_call, current);
-    current = ZEFC_IC_GET(current, sel_right);
+    current = ZEFC_IC_GET(current, sel_right, Node_, right);
   }
   return null_id();
 }
@@ -217,13 +218,12 @@ ensure_runtime()
 
   vtable_set(Leaf_vtable, selector_intern("array_o"), Leaf__array_o);
   vtable_set(Leaf_vtable, selector_intern("string_o"), Leaf__string_o);
-  field_register_get(Leaf_vtable, selector_intern("array_o"), Leaf_get_array);
-  field_register_get(Leaf_vtable, selector_intern("string_o"), Leaf_get_string);
-
+  field_register_get(Leaf_vtable, selector_intern("array_o"), offsetof(Leaf_, array));
+  field_register_get(Leaf_vtable, selector_intern("string_o"), offsetof(Leaf_, string));
   vtable_set(Inner_vtable, sel_left, Inner__left_o);
   vtable_set(Inner_vtable, sel_right, Inner__right_o);
-  field_register_get(Inner_vtable, sel_left, Inner_get_left);
-  field_register_get(Inner_vtable, sel_right, Inner_get_right);
+  field_register_get(Inner_vtable, sel_left, offsetof(Inner_, left));
+  field_register_get(Inner_vtable, sel_right, offsetof(Inner_, right));
 
   vtable_set(Node_vtable, sel_key, Node__key_o);
   vtable_set(Node_vtable, sel_value, Node__value_o);
@@ -232,12 +232,12 @@ ensure_runtime()
   vtable_set(Node_vtable, sel_set_left, Node__set_left_o);
   vtable_set(Node_vtable, sel_set_right, Node__set_right_o);
   vtable_set(Node_vtable, sel_traverse, Node__traverse_o);
-  field_register_get(Node_vtable, sel_key, Node_get_key);
-  field_register_get(Node_vtable, sel_value, Node_get_value);
-  field_register_get(Node_vtable, sel_left, Node_get_left);
-  field_register_get(Node_vtable, sel_right, Node_get_right);
-  field_register_set(Node_vtable, sel_set_left, Node_set_left);
-  field_register_set(Node_vtable, sel_set_right, Node_set_right);
+  field_register_get(Node_vtable, sel_key, offsetof(Node_, key));
+  field_register_get(Node_vtable, sel_value, offsetof(Node_, value));
+  field_register_get(Node_vtable, sel_left, offsetof(Node_, left));
+  field_register_get(Node_vtable, sel_right, offsetof(Node_, right));
+  field_register_set(Node_vtable, sel_set_left, offsetof(Node_, left));
+  field_register_set(Node_vtable, sel_set_right, offsetof(Node_, right));
 
   vtable_set(Tree_vtable, sel_root, Tree__root_o);
   vtable_set(Tree_vtable, sel_set_root, Tree__set_root_o);
@@ -249,8 +249,8 @@ ensure_runtime()
   vtable_set(Tree_vtable, sel_findGreatestLessThan, Tree__findGreatestLessThan_o);
   vtable_set(Tree_vtable, sel_exportKeys, Tree__exportKeys_o);
   vtable_set(Tree_vtable, sel_splay, Tree__splay_o);
-  field_register_get(Tree_vtable, sel_root, Tree_get_root);
-  field_register_set(Tree_vtable, sel_set_root, Tree_set_root);
+  field_register_get(Tree_vtable, sel_root, offsetof(Tree_, root));
+  field_register_set(Tree_vtable, sel_set_root, offsetof(Tree_, root));
 
   vtable_set(PushKey_vtable, sel_call, PushKey__call_o);
   selector_sites_patch();
@@ -336,7 +336,7 @@ static id
 Tree__isEmpty_o(id self, int selector, ...)
 {
   (void)selector;
-  return falsy(ZEFC_IC_GET(self, sel_root)) ? Int__from_i64(1) : Int__from_i64(0);
+  return falsy(ZEFC_IC_GET(self, sel_root, Tree_, root)) ? Int__from_i64(1) : Int__from_i64(0);
 }
 
 static id
@@ -349,49 +349,55 @@ Tree__splay_o(id self, int selector, id key)
   id dummy = Node__new(Int__from_i64(0), null_id());
   id left = dummy;
   id right = dummy;
-  id current = ZEFC_IC_GET(self, sel_root);
+  id current = ZEFC_IC_GET(self, sel_root, Tree_, root);
   for (;;) {
-    if (ikey(key) < ikey(ZEFC_IC_GET(current, sel_key))) {
-      if (falsy(ZEFC_IC_GET(current, sel_left))) {
+    if (ikey(key) < ikey(ZEFC_IC_GET(current, sel_key, Node_, key))) {
+      if (falsy(ZEFC_IC_GET(current, sel_left, Node_, left))) {
         break;
       }
-      if (ikey(key) < ikey(ZEFC_IC_GET(ZEFC_IC_GET(current, sel_left), sel_key))) {
-        id tmp = ZEFC_IC_GET(current, sel_left);
-        (void)ZEFC_IC_SET(current, sel_set_left, ZEFC_IC_GET(tmp, sel_right));
-        (void)ZEFC_IC_SET(tmp, sel_set_right, current);
-        current = tmp;
-        if (falsy(ZEFC_IC_GET(current, sel_left))) {
-          break;
+      {
+        id left_child = ZEFC_IC_GET(current, sel_left, Node_, left);
+        if (ikey(key) < ikey(ZEFC_IC_GET(left_child, sel_key, Node_, key))) {
+          id tmp = left_child;
+          (void)ZEFC_IC_SET(current, sel_set_left, Node_, left, ZEFC_IC_GET(tmp, sel_right, Node_, right));
+          (void)ZEFC_IC_SET(tmp, sel_set_right, Node_, right, current);
+          current = tmp;
+          if (falsy(ZEFC_IC_GET(current, sel_left, Node_, left))) {
+            break;
+          }
         }
       }
-      (void)ZEFC_IC_SET(right, sel_set_left, current);
+      (void)ZEFC_IC_SET(right, sel_set_left, Node_, left, current);
       right = current;
-      current = ZEFC_IC_GET(current, sel_left);
-    } else if (ikey(key) > ikey(ZEFC_IC_GET(current, sel_key))) {
-      if (falsy(ZEFC_IC_GET(current, sel_right))) {
+      current = ZEFC_IC_GET(current, sel_left, Node_, left);
+    } else if (ikey(key) > ikey(ZEFC_IC_GET(current, sel_key, Node_, key))) {
+      if (falsy(ZEFC_IC_GET(current, sel_right, Node_, right))) {
         break;
       }
-      if (ikey(key) > ikey(ZEFC_IC_GET(ZEFC_IC_GET(current, sel_right), sel_key))) {
-        id tmp = ZEFC_IC_GET(current, sel_right);
-        (void)ZEFC_IC_SET(current, sel_set_right, ZEFC_IC_GET(tmp, sel_left));
-        (void)ZEFC_IC_SET(tmp, sel_set_left, current);
-        current = tmp;
-        if (falsy(ZEFC_IC_GET(current, sel_right))) {
-          break;
+      {
+        id right_child = ZEFC_IC_GET(current, sel_right, Node_, right);
+        if (ikey(key) > ikey(ZEFC_IC_GET(right_child, sel_key, Node_, key))) {
+          id tmp = right_child;
+          (void)ZEFC_IC_SET(current, sel_set_right, Node_, right, ZEFC_IC_GET(tmp, sel_left, Node_, left));
+          (void)ZEFC_IC_SET(tmp, sel_set_left, Node_, left, current);
+          current = tmp;
+          if (falsy(ZEFC_IC_GET(current, sel_right, Node_, right))) {
+            break;
+          }
         }
       }
-      (void)ZEFC_IC_SET(left, sel_set_right, current);
+      (void)ZEFC_IC_SET(left, sel_set_right, Node_, right, current);
       left = current;
-      current = ZEFC_IC_GET(current, sel_right);
+      current = ZEFC_IC_GET(current, sel_right, Node_, right);
     } else {
       break;
     }
   }
-  (void)ZEFC_IC_SET(left, sel_set_right, ZEFC_IC_GET(current, sel_left));
-  (void)ZEFC_IC_SET(right, sel_set_left, ZEFC_IC_GET(current, sel_right));
-  (void)ZEFC_IC_SET(current, sel_set_left, ZEFC_IC_GET(dummy, sel_right));
-  (void)ZEFC_IC_SET(current, sel_set_right, ZEFC_IC_GET(dummy, sel_left));
-  (void)ZEFC_IC_SET(self, sel_set_root, current);
+  (void)ZEFC_IC_SET(left, sel_set_right, Node_, right, ZEFC_IC_GET(current, sel_left, Node_, left));
+  (void)ZEFC_IC_SET(right, sel_set_left, Node_, left, ZEFC_IC_GET(current, sel_right, Node_, right));
+  (void)ZEFC_IC_SET(current, sel_set_left, Node_, left, ZEFC_IC_GET(dummy, sel_right, Node_, right));
+  (void)ZEFC_IC_SET(current, sel_set_right, Node_, right, ZEFC_IC_GET(dummy, sel_left, Node_, left));
+  (void)ZEFC_IC_SET(self, sel_set_root, Tree_, root, current);
   return null_id();
 }
 
@@ -400,25 +406,25 @@ Tree__insert_oo(id self, int selector, id key, id value)
 {
   (void)selector;
   if (truthy(ZEFC_SEND0(self, sel_isEmpty))) {
-    (void)ZEFC_IC_SET(self, sel_set_root, Node__new(key, value));
+    (void)ZEFC_IC_SET(self, sel_set_root, Tree_, root, Node__new(key, value));
     return null_id();
   }
   (void)ZEFC_SEND1(self, sel_splay, key);
-  id root = ZEFC_IC_GET(self, sel_root);
-  if (ikey(ZEFC_IC_GET(root, sel_key)) == ikey(key)) {
+  id root = ZEFC_IC_GET(self, sel_root, Tree_, root);
+  if (ikey(ZEFC_IC_GET(root, sel_key, Node_, key)) == ikey(key)) {
     return null_id();
   }
   id node = Node__new(key, value);
-  if (ikey(key) > ikey(ZEFC_IC_GET(root, sel_key))) {
-    (void)ZEFC_IC_SET(node, sel_set_left, root);
-    (void)ZEFC_IC_SET(node, sel_set_right, ZEFC_IC_GET(root, sel_right));
-    (void)ZEFC_IC_SET(root, sel_set_right, null_id());
+  if (ikey(key) > ikey(ZEFC_IC_GET(root, sel_key, Node_, key))) {
+    (void)ZEFC_IC_SET(node, sel_set_left, Node_, left, root);
+    (void)ZEFC_IC_SET(node, sel_set_right, Node_, right, ZEFC_IC_GET(root, sel_right, Node_, right));
+    (void)ZEFC_IC_SET(root, sel_set_right, Node_, right, null_id());
   } else {
-    (void)ZEFC_IC_SET(node, sel_set_right, root);
-    (void)ZEFC_IC_SET(node, sel_set_left, ZEFC_IC_GET(root, sel_left));
-    (void)ZEFC_IC_SET(root, sel_set_left, null_id());
+    (void)ZEFC_IC_SET(node, sel_set_right, Node_, right, root);
+    (void)ZEFC_IC_SET(node, sel_set_left, Node_, left, ZEFC_IC_GET(root, sel_left, Node_, left));
+    (void)ZEFC_IC_SET(root, sel_set_left, Node_, left, null_id());
   }
-  (void)ZEFC_IC_SET(self, sel_set_root, node);
+  (void)ZEFC_IC_SET(self, sel_set_root, Tree_, root, node);
   return null_id();
 }
 
@@ -430,18 +436,18 @@ Tree__remove_o(id self, int selector, id key)
     zefc_error("Key not found (empty tree)");
   }
   (void)ZEFC_SEND1(self, sel_splay, key);
-  id root = ZEFC_IC_GET(self, sel_root);
-  if (ikey(ZEFC_IC_GET(root, sel_key)) != ikey(key)) {
+  id root = ZEFC_IC_GET(self, sel_root, Tree_, root);
+  if (ikey(ZEFC_IC_GET(root, sel_key, Node_, key)) != ikey(key)) {
     zefc_error("Key not found");
   }
   id removed = root;
-  if (falsy(ZEFC_IC_GET(root, sel_left))) {
-    (void)ZEFC_IC_SET(self, sel_set_root, ZEFC_IC_GET(root, sel_right));
+  if (falsy(ZEFC_IC_GET(root, sel_left, Node_, left))) {
+    (void)ZEFC_IC_SET(self, sel_set_root, Tree_, root, ZEFC_IC_GET(root, sel_right, Node_, right));
   } else {
-    id right = ZEFC_IC_GET(root, sel_right);
-    (void)ZEFC_IC_SET(self, sel_set_root, ZEFC_IC_GET(root, sel_left));
+    id right = ZEFC_IC_GET(root, sel_right, Node_, right);
+    (void)ZEFC_IC_SET(self, sel_set_root, Tree_, root, ZEFC_IC_GET(root, sel_left, Node_, left));
     (void)ZEFC_SEND1(self, sel_splay, key);
-    (void)ZEFC_IC_SET(ZEFC_IC_GET(self, sel_root), sel_set_right, right);
+    (void)ZEFC_IC_SET(ZEFC_IC_GET(self, sel_root, Tree_, root), sel_set_right, Node_, right, right);
   }
   return removed;
 }
@@ -454,8 +460,8 @@ Tree__find_o(id self, int selector, id key)
     return null_id();
   }
   (void)ZEFC_SEND1(self, sel_splay, key);
-  id root = ZEFC_IC_GET(self, sel_root);
-  if (ikey(ZEFC_IC_GET(root, sel_key)) == ikey(key)) {
+  id root = ZEFC_IC_GET(self, sel_root, Tree_, root);
+  if (ikey(ZEFC_IC_GET(root, sel_key, Node_, key)) == ikey(key)) {
     return root;
   }
   return null_id();
@@ -468,9 +474,9 @@ Tree__findMax_o(id self, int selector, id opt_start)
   if (truthy(ZEFC_SEND0(self, sel_isEmpty))) {
     return null_id();
   }
-  id current = truthy(opt_start) ? opt_start : ZEFC_IC_GET(self, sel_root);
-  while (truthy(ZEFC_IC_GET(current, sel_right))) {
-    current = ZEFC_IC_GET(current, sel_right);
+  id current = truthy(opt_start) ? opt_start : ZEFC_IC_GET(self, sel_root, Tree_, root);
+  while (truthy(ZEFC_IC_GET(current, sel_right, Node_, right))) {
+    current = ZEFC_IC_GET(current, sel_right, Node_, right);
   }
   return current;
 }
@@ -483,12 +489,12 @@ Tree__findGreatestLessThan_o(id self, int selector, id key)
     return null_id();
   }
   (void)ZEFC_SEND1(self, sel_splay, key);
-  id root = ZEFC_IC_GET(self, sel_root);
-  if (ikey(ZEFC_IC_GET(root, sel_key)) < ikey(key)) {
+  id root = ZEFC_IC_GET(self, sel_root, Tree_, root);
+  if (ikey(ZEFC_IC_GET(root, sel_key, Node_, key)) < ikey(key)) {
     return root;
   }
-  if (truthy(ZEFC_IC_GET(root, sel_left))) {
-    return ZEFC_SEND1(self, sel_findMax, ZEFC_IC_GET(root, sel_left));
+  if (truthy(ZEFC_IC_GET(root, sel_left, Node_, left))) {
+    return ZEFC_SEND1(self, sel_findMax, ZEFC_IC_GET(root, sel_left, Node_, left));
   }
   return null_id();
 }
@@ -499,7 +505,7 @@ Tree__exportKeys_o(id self, int selector, ...)
   (void)selector;
   id result = Array__new();
   if (!truthy(ZEFC_SEND0(self, sel_isEmpty))) {
-    (void)ZEFC_SEND1(ZEFC_IC_GET(self, sel_root), sel_traverse, make_push_key(result));
+    (void)ZEFC_SEND1(ZEFC_IC_GET(self, sel_root, Tree_, root), sel_traverse, make_push_key(result));
   }
   return result;
 }
@@ -553,7 +559,7 @@ SplayRun()
     if (falsy(greatest)) {
       (void)ZEFC_SEND1(g_splayTree, sel_remove, key);
     } else {
-      (void)ZEFC_SEND1(g_splayTree, sel_remove, ZEFC_IC_GET(greatest, sel_key));
+      (void)ZEFC_SEND1(g_splayTree, sel_remove, ZEFC_IC_GET(greatest, sel_key, Node_, key));
     }
   }
 }

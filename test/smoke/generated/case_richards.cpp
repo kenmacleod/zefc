@@ -13,6 +13,8 @@
 #include "zefc/string_api.hpp"
 #include "smoke_cases.hpp"
 
+#include <cstddef>
+
 namespace zefc {
 namespace smoke {
 
@@ -521,17 +523,17 @@ ensure_runtime()
   vtable_set(Scheduler_vt, sel_set_currentTcb, Sch__set_currentTcb_o);
   vtable_set(Scheduler_vt, sel_currentId, Sch__currentId_o);
   vtable_set(Scheduler_vt, sel_set_currentId, Sch__set_currentId_o);
-  field_register_get(Scheduler_vt, sel_queueCount, Sch_get_queueCount);
-  field_register_set(Scheduler_vt, sel_set_queueCount, Sch_set_queueCount);
-  field_register_get(Scheduler_vt, sel_holdCount, Sch_get_holdCount);
-  field_register_set(Scheduler_vt, sel_set_holdCount, Sch_set_holdCount);
-  field_register_get(Scheduler_vt, sel_blocks, Sch_get_blocks);
-  field_register_get(Scheduler_vt, sel_list, Sch_get_list);
-  field_register_set(Scheduler_vt, sel_set_list, Sch_set_list);
-  field_register_get(Scheduler_vt, sel_currentTcb, Sch_get_currentTcb);
-  field_register_set(Scheduler_vt, sel_set_currentTcb, Sch_set_currentTcb);
-  field_register_get(Scheduler_vt, sel_currentId, Sch_get_currentId);
-  field_register_set(Scheduler_vt, sel_set_currentId, Sch_set_currentId);
+  field_register_get(Scheduler_vt, sel_queueCount, offsetof(Scheduler_, queueCount));
+  field_register_set(Scheduler_vt, sel_set_queueCount, offsetof(Scheduler_, queueCount));
+  field_register_get(Scheduler_vt, sel_holdCount, offsetof(Scheduler_, holdCount));
+  field_register_set(Scheduler_vt, sel_set_holdCount, offsetof(Scheduler_, holdCount));
+  field_register_get(Scheduler_vt, sel_blocks, offsetof(Scheduler_, blocks));
+  field_register_get(Scheduler_vt, sel_list, offsetof(Scheduler_, list));
+  field_register_set(Scheduler_vt, sel_set_list, offsetof(Scheduler_, list));
+  field_register_get(Scheduler_vt, sel_currentTcb, offsetof(Scheduler_, currentTcb));
+  field_register_set(Scheduler_vt, sel_set_currentTcb, offsetof(Scheduler_, currentTcb));
+  field_register_get(Scheduler_vt, sel_currentId, offsetof(Scheduler_, currentId));
+  field_register_set(Scheduler_vt, sel_set_currentId, offsetof(Scheduler_, currentId));
 
   vtable_set(TCB_vt, sel_setRunning, TCB__setRunning_o);
   vtable_set(TCB_vt, sel_markAsNotHeld, TCB__markAsNotHeld_o);
@@ -549,40 +551,40 @@ ensure_runtime()
   vtable_set(TCB_vt, sel_task, TCB__task_o);
   vtable_set(TCB_vt, sel_state, TCB__state_o);
   vtable_set(TCB_vt, sel_set_state, TCB__set_state_o);
-  field_register_get(TCB_vt, sel_link, TCB_get_link);
-  field_register_get(TCB_vt, sel_id, TCB_get_id);
-  field_register_get(TCB_vt, sel_priority, TCB_get_priority);
-  field_register_get(TCB_vt, sel_tqueue, TCB_get_queue);
-  field_register_set(TCB_vt, sel_set_tqueue, TCB_set_queue);
-  field_register_get(TCB_vt, sel_task, TCB_get_task);
-  field_register_get(TCB_vt, sel_state, TCB_get_state);
-  field_register_set(TCB_vt, sel_set_state, TCB_set_state);
+  field_register_get(TCB_vt, sel_link, offsetof(TCB_, link));
+  field_register_get(TCB_vt, sel_id, offsetof(TCB_, tid));
+  field_register_get(TCB_vt, sel_priority, offsetof(TCB_, priority));
+  field_register_get(TCB_vt, sel_tqueue, offsetof(TCB_, queue));
+  field_register_set(TCB_vt, sel_set_tqueue, offsetof(TCB_, queue));
+  field_register_get(TCB_vt, sel_task, offsetof(TCB_, task));
+  field_register_get(TCB_vt, sel_state, offsetof(TCB_, state));
+  field_register_set(TCB_vt, sel_set_state, offsetof(TCB_, state));
 
   vtable_set(Idle_vt, sel_run_packet, Idle__run_o);
-  field_register_get(Idle_vt, sel_scheduler, Idle_get_scheduler);
-  field_register_get(Idle_vt, sel_v1, Idle_get_v1);
-  field_register_set(Idle_vt, sel_set_v1, Idle_set_v1);
-  field_register_get(Idle_vt, sel_count, Idle_get_count);
-  field_register_set(Idle_vt, sel_set_count, Idle_set_count);
+  field_register_get(Idle_vt, sel_scheduler, offsetof(Idle_, scheduler));
+  field_register_get(Idle_vt, sel_v1, offsetof(Idle_, v1));
+  field_register_set(Idle_vt, sel_set_v1, offsetof(Idle_, v1));
+  field_register_get(Idle_vt, sel_count, offsetof(Idle_, count));
+  field_register_set(Idle_vt, sel_set_count, offsetof(Idle_, count));
 
   vtable_set(Device_vt, sel_run_packet, Device__run_o);
-  field_register_get(Device_vt, sel_scheduler, Dev_get_scheduler);
-  field_register_get(Device_vt, sel_v1, Dev_get_v1);
-  field_register_set(Device_vt, sel_set_v1, Dev_set_v1);
+  field_register_get(Device_vt, sel_scheduler, offsetof(Device_, scheduler));
+  field_register_get(Device_vt, sel_v1, offsetof(Device_, v1));
+  field_register_set(Device_vt, sel_set_v1, offsetof(Device_, v1));
 
   vtable_set(Worker_vt, sel_run_packet, Worker__run_o);
-  field_register_get(Worker_vt, sel_scheduler, W_get_scheduler);
-  field_register_get(Worker_vt, sel_v1, W_get_v1);
-  field_register_set(Worker_vt, sel_set_v1, W_set_v1);
-  field_register_get(Worker_vt, sel_v2, W_get_v2);
-  field_register_set(Worker_vt, sel_set_v2, W_set_v2);
+  field_register_get(Worker_vt, sel_scheduler, offsetof(Worker_, scheduler));
+  field_register_get(Worker_vt, sel_v1, offsetof(Worker_, v1));
+  field_register_set(Worker_vt, sel_set_v1, offsetof(Worker_, v1));
+  field_register_get(Worker_vt, sel_v2, offsetof(Worker_, v2));
+  field_register_set(Worker_vt, sel_set_v2, offsetof(Worker_, v2));
 
   vtable_set(Handler_vt, sel_run_packet, Handler__run_o);
-  field_register_get(Handler_vt, sel_scheduler, H_get_scheduler);
-  field_register_get(Handler_vt, sel_v1, H_get_v1);
-  field_register_set(Handler_vt, sel_set_v1, H_set_v1);
-  field_register_get(Handler_vt, sel_v2, H_get_v2);
-  field_register_set(Handler_vt, sel_set_v2, H_set_v2);
+  field_register_get(Handler_vt, sel_scheduler, offsetof(Handler_, scheduler));
+  field_register_get(Handler_vt, sel_v1, offsetof(Handler_, v1));
+  field_register_set(Handler_vt, sel_set_v1, offsetof(Handler_, v1));
+  field_register_get(Handler_vt, sel_v2, offsetof(Handler_, v2));
+  field_register_set(Handler_vt, sel_set_v2, offsetof(Handler_, v2));
 
   vtable_set(Packet_vt, sel_addTo, Packet__addTo_o);
   vtable_set(Packet_vt, sel_link, P__link_o);
@@ -593,14 +595,14 @@ ensure_runtime()
   vtable_set(Packet_vt, sel_a1, P__a1_o);
   vtable_set(Packet_vt, sel_set_a1, P__set_a1_o);
   vtable_set(Packet_vt, sel_a2, P__a2_o);
-  field_register_get(Packet_vt, sel_link, P_get_link);
-  field_register_set(Packet_vt, sel_set_link, P_set_link);
-  field_register_get(Packet_vt, sel_id, P_get_id);
-  field_register_set(Packet_vt, sel_set_id, P_set_id);
-  field_register_get(Packet_vt, sel_kind, P_get_kind);
-  field_register_get(Packet_vt, sel_a1, P_get_a1);
-  field_register_set(Packet_vt, sel_set_a1, P_set_a1);
-  field_register_get(Packet_vt, sel_a2, P_get_a2);
+  field_register_get(Packet_vt, sel_link, offsetof(Packet_, link));
+  field_register_set(Packet_vt, sel_set_link, offsetof(Packet_, link));
+  field_register_get(Packet_vt, sel_id, offsetof(Packet_, pid));
+  field_register_set(Packet_vt, sel_set_id, offsetof(Packet_, pid));
+  field_register_get(Packet_vt, sel_kind, offsetof(Packet_, kind));
+  field_register_get(Packet_vt, sel_a1, offsetof(Packet_, a1));
+  field_register_set(Packet_vt, sel_set_a1, offsetof(Packet_, a1));
+  field_register_get(Packet_vt, sel_a2, offsetof(Packet_, a2));
 
   selector_sites_patch();
 }
@@ -712,10 +714,10 @@ send3(id obj, int sel, id a, id b, id c)
 static id
 Sch__addTask_oooo(id self, int, id idv, id priority, id queue, id task)
 {
-  id tcb = TCB__new(ZEFC_IC_GET(self, sel_list), idv, priority, queue, task);
-  (void)ZEFC_IC_SET(self, sel_set_currentTcb, tcb);
-  (void)ZEFC_IC_SET(self, sel_set_list, tcb);
-  Array__set_at(ZEFC_IC_GET(self, sel_blocks), static_cast<int>(ii(idv)), tcb);
+  id tcb = TCB__new(ZEFC_IC_GET(self, sel_list, Scheduler_, list), idv, priority, queue, task);
+  (void)ZEFC_IC_SET(self, sel_set_currentTcb, Scheduler_, currentTcb, tcb);
+  (void)ZEFC_IC_SET(self, sel_set_list, Scheduler_, list, tcb);
+  Array__set_at(ZEFC_IC_GET(self, sel_blocks, Scheduler_, blocks), static_cast<int>(ii(idv)), tcb);
   return null_id();
 }
 
@@ -723,7 +725,7 @@ static id
 Sch__addRunningTask_oooo(id self, int, id idv, id priority, id queue, id task)
 {
   (void)send4(self, sel_addTask, idv, priority, queue, task);
-  (void)ZEFC_SEND0(ZEFC_IC_GET(self, sel_currentTcb), sel_setRunning);
+  (void)ZEFC_SEND0(ZEFC_IC_GET(self, sel_currentTcb, Scheduler_, currentTcb), sel_setRunning);
   return null_id();
 }
 
@@ -756,14 +758,14 @@ Sch__addDeviceTask_ooo(id self, int, id idv, id priority, id queue)
 static id
 Sch__schedule_o(id self, int, ...)
 {
-  (void)ZEFC_IC_SET(self, sel_set_currentTcb, ZEFC_IC_GET(self, sel_list));
-  while (truthy(ZEFC_IC_GET(self, sel_currentTcb))) {
-    id tcb = ZEFC_IC_GET(self, sel_currentTcb);
+  (void)ZEFC_IC_SET(self, sel_set_currentTcb, Scheduler_, currentTcb, ZEFC_IC_GET(self, sel_list, Scheduler_, list));
+  while (truthy(ZEFC_IC_GET(self, sel_currentTcb, Scheduler_, currentTcb))) {
+    id tcb = ZEFC_IC_GET(self, sel_currentTcb, Scheduler_, currentTcb);
     if (truthy(ZEFC_SEND0(tcb, sel_isHeldOrSuspended))) {
-      (void)ZEFC_IC_SET(self, sel_set_currentTcb, ZEFC_IC_GET(tcb, sel_link));
+      (void)ZEFC_IC_SET(self, sel_set_currentTcb, Scheduler_, currentTcb, ZEFC_IC_GET(tcb, sel_link, TCB_, link));
     } else {
-      (void)ZEFC_IC_SET(self, sel_set_currentId, ZEFC_IC_GET(tcb, sel_id));
-      (void)ZEFC_IC_SET(self, sel_set_currentTcb, ZEFC_SEND0(tcb, sel_run));
+      (void)ZEFC_IC_SET(self, sel_set_currentId, Scheduler_, currentId, ZEFC_IC_GET(tcb, sel_id, TCB_, tid));
+      (void)ZEFC_IC_SET(self, sel_set_currentTcb, Scheduler_, currentTcb, ZEFC_SEND0(tcb, sel_run));
     }
   }
   return null_id();
@@ -772,30 +774,31 @@ Sch__schedule_o(id self, int, ...)
 static id
 Sch__release_o(id self, int, id idv)
 {
-  id tcb = Array__at(ZEFC_IC_GET(self, sel_blocks), static_cast<int>(ii(idv)));
+  id tcb = Array__at(ZEFC_IC_GET(self, sel_blocks, Scheduler_, blocks), static_cast<int>(ii(idv)));
   if (falsy(tcb)) {
     return tcb;
   }
   (void)ZEFC_SEND0(tcb, sel_markAsNotHeld);
-  if (ii(ZEFC_IC_GET(tcb, sel_priority)) > ii(ZEFC_IC_GET(ZEFC_IC_GET(self, sel_currentTcb), sel_priority))) {
+  id current = ZEFC_IC_GET(self, sel_currentTcb, Scheduler_, currentTcb);
+  if (ii(ZEFC_IC_GET(tcb, sel_priority, TCB_, priority)) > ii(ZEFC_IC_GET(current, sel_priority, TCB_, priority))) {
     return tcb;
   }
-  return ZEFC_IC_GET(self, sel_currentTcb);
+  return current;
 }
 
 static id
 Sch__holdCurrent_o(id self, int, ...)
 {
-  (void)ZEFC_IC_SET(self, sel_set_holdCount, I(ii(ZEFC_IC_GET(self, sel_holdCount)) + 1));
-  id tcb = ZEFC_IC_GET(self, sel_currentTcb);
+  (void)ZEFC_IC_SET(self, sel_set_holdCount, Scheduler_, holdCount, I(ii(ZEFC_IC_GET(self, sel_holdCount, Scheduler_, holdCount)) + 1));
+  id tcb = ZEFC_IC_GET(self, sel_currentTcb, Scheduler_, currentTcb);
   (void)ZEFC_SEND0(tcb, sel_markAsHeld);
-  return ZEFC_IC_GET(tcb, sel_link);
+  return ZEFC_IC_GET(tcb, sel_link, TCB_, link);
 }
 
 static id
 Sch__suspendCurrent_o(id self, int, ...)
 {
-  id tcb = ZEFC_IC_GET(self, sel_currentTcb);
+  id tcb = ZEFC_IC_GET(self, sel_currentTcb, Scheduler_, currentTcb);
   (void)ZEFC_SEND0(tcb, sel_markAsSuspended);
   return tcb;
 }
@@ -803,41 +806,41 @@ Sch__suspendCurrent_o(id self, int, ...)
 static id
 Sch__queue_o(id self, int, id packet)
 {
-  id t = Array__at(ZEFC_IC_GET(self, sel_blocks), static_cast<int>(ii(ZEFC_IC_GET(packet, sel_id))));
+  id t = Array__at(ZEFC_IC_GET(self, sel_blocks, Scheduler_, blocks), static_cast<int>(ii(ZEFC_IC_GET(packet, sel_id, Packet_, pid))));
   if (falsy(t)) {
     return t;
   }
-  (void)ZEFC_IC_SET(self, sel_set_queueCount, I(ii(ZEFC_IC_GET(self, sel_queueCount)) + 1));
-  (void)ZEFC_IC_SET(packet, sel_set_link, null_id());
-  (void)ZEFC_IC_SET(packet, sel_set_id, ZEFC_IC_GET(self, sel_currentId));
-  return ZEFC_SEND2(t, sel_checkPriorityAdd, ZEFC_IC_GET(self, sel_currentTcb), packet);
+  (void)ZEFC_IC_SET(self, sel_set_queueCount, Scheduler_, queueCount, I(ii(ZEFC_IC_GET(self, sel_queueCount, Scheduler_, queueCount)) + 1));
+  (void)ZEFC_IC_SET(packet, sel_set_link, Packet_, link, null_id());
+  (void)ZEFC_IC_SET(packet, sel_set_id, Packet_, pid, ZEFC_IC_GET(self, sel_currentId, Scheduler_, currentId));
+  return ZEFC_SEND2(t, sel_checkPriorityAdd, ZEFC_IC_GET(self, sel_currentTcb, Scheduler_, currentTcb), packet);
 }
 
 static id
 TCB__setRunning_o(id self, int, ...)
 {
-  (void)ZEFC_IC_SET(self, sel_set_state, I(kSTATE_RUNNING));
+  (void)ZEFC_IC_SET(self, sel_set_state, TCB_, state, I(kSTATE_RUNNING));
   return null_id();
 }
 
 static id
 TCB__markAsNotHeld_o(id self, int, ...)
 {
-  (void)ZEFC_IC_SET(self, sel_set_state, I(ii(ZEFC_IC_GET(self, sel_state)) & kSTATE_NOT_HELD));
+  (void)ZEFC_IC_SET(self, sel_set_state, TCB_, state, I(ii(ZEFC_IC_GET(self, sel_state, TCB_, state)) & kSTATE_NOT_HELD));
   return null_id();
 }
 
 static id
 TCB__markAsHeld_o(id self, int, ...)
 {
-  (void)ZEFC_IC_SET(self, sel_set_state, I(ii(ZEFC_IC_GET(self, sel_state)) | kSTATE_HELD));
+  (void)ZEFC_IC_SET(self, sel_set_state, TCB_, state, I(ii(ZEFC_IC_GET(self, sel_state, TCB_, state)) | kSTATE_HELD));
   return null_id();
 }
 
 static id
 TCB__isHeldOrSuspended_o(id self, int, ...)
 {
-  const long long st = ii(ZEFC_IC_GET(self, sel_state));
+  const long long st = ii(ZEFC_IC_GET(self, sel_state, TCB_, state));
   const bool held = (st & kSTATE_HELD) != 0;
   const bool susp = st == kSTATE_SUSPENDED;
   return (held || susp) ? I(1) : I(0);
@@ -846,14 +849,14 @@ TCB__isHeldOrSuspended_o(id self, int, ...)
 static id
 TCB__markAsSuspended_o(id self, int, ...)
 {
-  (void)ZEFC_IC_SET(self, sel_set_state, I(ii(ZEFC_IC_GET(self, sel_state)) | kSTATE_SUSPENDED));
+  (void)ZEFC_IC_SET(self, sel_set_state, TCB_, state, I(ii(ZEFC_IC_GET(self, sel_state, TCB_, state)) | kSTATE_SUSPENDED));
   return null_id();
 }
 
 static id
 TCB__markAsRunnable_o(id self, int, ...)
 {
-  (void)ZEFC_IC_SET(self, sel_set_state, I(ii(ZEFC_IC_GET(self, sel_state)) | kSTATE_RUNNABLE));
+  (void)ZEFC_IC_SET(self, sel_set_state, TCB_, state, I(ii(ZEFC_IC_GET(self, sel_state, TCB_, state)) | kSTATE_RUNNABLE));
   return null_id();
 }
 
@@ -861,29 +864,29 @@ static id
 TCB__run_o(id self, int, ...)
 {
   id packet = null_id();
-  if (ii(ZEFC_IC_GET(self, sel_state)) == kSTATE_SUSPENDED_RUNNABLE) {
-    packet = ZEFC_IC_GET(self, sel_tqueue);
-    (void)ZEFC_IC_SET(self, sel_set_tqueue, ZEFC_IC_GET(packet, sel_link));
-    if (falsy(ZEFC_IC_GET(self, sel_tqueue))) {
-      (void)ZEFC_IC_SET(self, sel_set_state, I(kSTATE_RUNNING));
+  if (ii(ZEFC_IC_GET(self, sel_state, TCB_, state)) == kSTATE_SUSPENDED_RUNNABLE) {
+    packet = ZEFC_IC_GET(self, sel_tqueue, TCB_, queue);
+    (void)ZEFC_IC_SET(self, sel_set_tqueue, TCB_, queue, ZEFC_IC_GET(packet, sel_link, Packet_, link));
+    if (falsy(ZEFC_IC_GET(self, sel_tqueue, TCB_, queue))) {
+      (void)ZEFC_IC_SET(self, sel_set_state, TCB_, state, I(kSTATE_RUNNING));
     } else {
-      (void)ZEFC_IC_SET(self, sel_set_state, I(kSTATE_RUNNABLE));
+      (void)ZEFC_IC_SET(self, sel_set_state, TCB_, state, I(kSTATE_RUNNABLE));
     }
   }
-  return ZEFC_SEND1(ZEFC_IC_GET(self, sel_task), sel_run_packet, packet);
+  return ZEFC_SEND1(ZEFC_IC_GET(self, sel_task, TCB_, task), sel_run_packet, packet);
 }
 
 static id
 TCB__checkPriorityAdd_oo(id self, int, id task, id packet)
 {
-  if (falsy(ZEFC_IC_GET(self, sel_tqueue))) {
-    (void)ZEFC_IC_SET(self, sel_set_tqueue, packet);
+  if (falsy(ZEFC_IC_GET(self, sel_tqueue, TCB_, queue))) {
+    (void)ZEFC_IC_SET(self, sel_set_tqueue, TCB_, queue, packet);
     (void)ZEFC_SEND0(self, sel_markAsRunnable);
-    if (ii(ZEFC_IC_GET(self, sel_priority)) > ii(ZEFC_IC_GET(task, sel_priority))) {
+    if (ii(ZEFC_IC_GET(self, sel_priority, TCB_, priority)) > ii(ZEFC_IC_GET(task, sel_priority, TCB_, priority))) {
       return self;
     }
   } else {
-    (void)ZEFC_IC_SET(self, sel_set_tqueue, ZEFC_SEND1(packet, sel_addTo, ZEFC_IC_GET(self, sel_tqueue)));
+    (void)ZEFC_IC_SET(self, sel_set_tqueue, TCB_, queue, ZEFC_SEND1(packet, sel_addTo, ZEFC_IC_GET(self, sel_tqueue, TCB_, queue)));
   }
   return task;
 }
@@ -892,56 +895,56 @@ static id
 Idle__run_o(id self, int, id packet)
 {
   (void)packet;
-  (void)ZEFC_IC_SET(self, sel_set_count, I(ii(ZEFC_IC_GET(self, sel_count)) - 1));
-  if (ii(ZEFC_IC_GET(self, sel_count)) == 0) {
-    return ZEFC_SEND0(ZEFC_IC_GET(self, sel_scheduler), sel_holdCurrent);
+  (void)ZEFC_IC_SET(self, sel_set_count, Idle_, count, I(ii(ZEFC_IC_GET(self, sel_count, Idle_, count)) - 1));
+  if (ii(ZEFC_IC_GET(self, sel_count, Idle_, count)) == 0) {
+    return ZEFC_SEND0(ZEFC_IC_GET(self, sel_scheduler, Idle_, scheduler), sel_holdCurrent);
   }
-  const long long v1 = ii(ZEFC_IC_GET(self, sel_v1));
+  const long long v1 = ii(ZEFC_IC_GET(self, sel_v1, Idle_, v1));
   if ((v1 & 1) == 0) {
-    (void)ZEFC_IC_SET(self, sel_set_v1, I(v1 >> 1));
-    return ZEFC_SEND1(ZEFC_IC_GET(self, sel_scheduler), sel_release, I(kID_DEVICE_A));
+    (void)ZEFC_IC_SET(self, sel_set_v1, Idle_, v1, I(v1 >> 1));
+    return ZEFC_SEND1(ZEFC_IC_GET(self, sel_scheduler, Idle_, scheduler), sel_release, I(kID_DEVICE_A));
   }
-  (void)ZEFC_IC_SET(self, sel_set_v1, I((v1 >> 1) ^ 53256));
-  return ZEFC_SEND1(ZEFC_IC_GET(self, sel_scheduler), sel_release, I(kID_DEVICE_B));
+  (void)ZEFC_IC_SET(self, sel_set_v1, Idle_, v1, I((v1 >> 1) ^ 53256));
+  return ZEFC_SEND1(ZEFC_IC_GET(self, sel_scheduler, Idle_, scheduler), sel_release, I(kID_DEVICE_B));
 }
 
 static id
 Device__run_o(id self, int, id packet)
 {
-  id sch = ZEFC_IC_GET(self, sel_scheduler);
+  id sch = ZEFC_IC_GET(self, sel_scheduler, Device_, scheduler);
   if (falsy(packet)) {
-    if (falsy(ZEFC_IC_GET(self, sel_v1))) {
+    if (falsy(ZEFC_IC_GET(self, sel_v1, Device_, v1))) {
       return ZEFC_SEND0(sch, sel_suspendCurrent);
     }
-    id v = ZEFC_IC_GET(self, sel_v1);
-    (void)ZEFC_IC_SET(self, sel_set_v1, null_id());
+    id v = ZEFC_IC_GET(self, sel_v1, Device_, v1);
+    (void)ZEFC_IC_SET(self, sel_set_v1, Device_, v1, null_id());
     return ZEFC_SEND1(sch, sel_queue, v);
   }
-  (void)ZEFC_IC_SET(self, sel_set_v1, packet);
+  (void)ZEFC_IC_SET(self, sel_set_v1, Device_, v1, packet);
   return ZEFC_SEND0(sch, sel_holdCurrent);
 }
 
 static id
 Worker__run_o(id self, int, id packet)
 {
-  id sch = ZEFC_IC_GET(self, sel_scheduler);
+  id sch = ZEFC_IC_GET(self, sel_scheduler, Worker_, scheduler);
   if (falsy(packet)) {
     return ZEFC_SEND0(sch, sel_suspendCurrent);
   }
-  if (ii(ZEFC_IC_GET(self, sel_v1)) == kID_HANDLER_A) {
-    (void)ZEFC_IC_SET(self, sel_set_v1, I(kID_HANDLER_B));
+  if (ii(ZEFC_IC_GET(self, sel_v1, Worker_, v1)) == kID_HANDLER_A) {
+    (void)ZEFC_IC_SET(self, sel_set_v1, Worker_, v1, I(kID_HANDLER_B));
   } else {
-    (void)ZEFC_IC_SET(self, sel_set_v1, I(kID_HANDLER_A));
+    (void)ZEFC_IC_SET(self, sel_set_v1, Worker_, v1, I(kID_HANDLER_A));
   }
-  (void)ZEFC_IC_SET(packet, sel_set_id, ZEFC_IC_GET(self, sel_v1));
-  (void)ZEFC_IC_SET(packet, sel_set_a1, I(0));
-  id a2 = ZEFC_IC_GET(packet, sel_a2);
+  (void)ZEFC_IC_SET(packet, sel_set_id, Packet_, pid, ZEFC_IC_GET(self, sel_v1, Worker_, v1));
+  (void)ZEFC_IC_SET(packet, sel_set_a1, Packet_, a1, I(0));
+  id a2 = ZEFC_IC_GET(packet, sel_a2, Packet_, a2);
   for (int i = 0; i < kDATA_SIZE; ++i) {
-    long long v2 = ii(ZEFC_IC_GET(self, sel_v2)) + 1;
+    long long v2 = ii(ZEFC_IC_GET(self, sel_v2, Worker_, v2)) + 1;
     if (v2 > 26) {
       v2 = 1;
     }
-    (void)ZEFC_IC_SET(self, sel_set_v2, I(v2));
+    (void)ZEFC_IC_SET(self, sel_set_v2, Worker_, v2, I(v2));
     Array__set_at(a2, i, I(v2));
   }
   return ZEFC_SEND1(sch, sel_queue, packet);
@@ -950,28 +953,28 @@ Worker__run_o(id self, int, id packet)
 static id
 Handler__run_o(id self, int, id packet)
 {
-  id sch = ZEFC_IC_GET(self, sel_scheduler);
+  id sch = ZEFC_IC_GET(self, sel_scheduler, Handler_, scheduler);
   if (truthy(packet)) {
-    if (ii(ZEFC_IC_GET(packet, sel_kind)) == kKIND_WORK) {
-      (void)ZEFC_IC_SET(self, sel_set_v1, ZEFC_SEND1(packet, sel_addTo, ZEFC_IC_GET(self, sel_v1)));
+    if (ii(ZEFC_IC_GET(packet, sel_kind, Packet_, kind)) == kKIND_WORK) {
+      (void)ZEFC_IC_SET(self, sel_set_v1, Handler_, v1, ZEFC_SEND1(packet, sel_addTo, ZEFC_IC_GET(self, sel_v1, Handler_, v1)));
     } else {
-      (void)ZEFC_IC_SET(self, sel_set_v2, ZEFC_SEND1(packet, sel_addTo, ZEFC_IC_GET(self, sel_v2)));
+      (void)ZEFC_IC_SET(self, sel_set_v2, Handler_, v2, ZEFC_SEND1(packet, sel_addTo, ZEFC_IC_GET(self, sel_v2, Handler_, v2)));
     }
   }
-  if (truthy(ZEFC_IC_GET(self, sel_v1))) {
-    id v1 = ZEFC_IC_GET(self, sel_v1);
-    const long long count = ii(ZEFC_IC_GET(v1, sel_a1));
+  if (truthy(ZEFC_IC_GET(self, sel_v1, Handler_, v1))) {
+    id v1 = ZEFC_IC_GET(self, sel_v1, Handler_, v1);
+    const long long count = ii(ZEFC_IC_GET(v1, sel_a1, Packet_, a1));
     if (count < kDATA_SIZE) {
-      if (truthy(ZEFC_IC_GET(self, sel_v2))) {
-        id v = ZEFC_IC_GET(self, sel_v2);
-        (void)ZEFC_IC_SET(self, sel_set_v2, ZEFC_IC_GET(v, sel_link));
-        (void)ZEFC_IC_SET(v, sel_set_a1, Array__at(ZEFC_IC_GET(v1, sel_a2), static_cast<int>(count)));
-        (void)ZEFC_IC_SET(v1, sel_set_a1, I(count + 1));
+      if (truthy(ZEFC_IC_GET(self, sel_v2, Handler_, v2))) {
+        id v = ZEFC_IC_GET(self, sel_v2, Handler_, v2);
+        (void)ZEFC_IC_SET(self, sel_set_v2, Handler_, v2, ZEFC_IC_GET(v, sel_link, Packet_, link));
+        (void)ZEFC_IC_SET(v, sel_set_a1, Packet_, a1, Array__at(ZEFC_IC_GET(v1, sel_a2, Packet_, a2), static_cast<int>(count)));
+        (void)ZEFC_IC_SET(v1, sel_set_a1, Packet_, a1, I(count + 1));
         return ZEFC_SEND1(sch, sel_queue, v);
       }
     } else {
       id v = v1;
-      (void)ZEFC_IC_SET(self, sel_set_v1, ZEFC_IC_GET(v1, sel_link));
+      (void)ZEFC_IC_SET(self, sel_set_v1, Handler_, v1, ZEFC_IC_GET(v1, sel_link, Packet_, link));
       return ZEFC_SEND1(sch, sel_queue, v);
     }
   }
@@ -981,19 +984,19 @@ Handler__run_o(id self, int, id packet)
 static id
 Packet__addTo_o(id self, int, id queue)
 {
-  (void)ZEFC_IC_SET(self, sel_set_link, null_id());
+  (void)ZEFC_IC_SET(self, sel_set_link, Packet_, link, null_id());
   if (falsy(queue)) {
     return self;
   }
   id next = queue;
   for (;;) {
-    id peek = ZEFC_IC_GET(next, sel_link);
+    id peek = ZEFC_IC_GET(next, sel_link, Packet_, link);
     if (falsy(peek)) {
       break;
     }
     next = peek;
   }
-  (void)ZEFC_IC_SET(next, sel_set_link, self);
+  (void)ZEFC_IC_SET(next, sel_set_link, Packet_, link, self);
   return queue;
 }
 
@@ -1022,8 +1025,8 @@ runRichards()
 
   (void)ZEFC_SEND0(scheduler, sel_schedule);
 
-  id qc = ZEFC_IC_GET(scheduler, sel_queueCount);
-  id hc = ZEFC_IC_GET(scheduler, sel_holdCount);
+  id qc = ZEFC_IC_GET(scheduler, sel_queueCount, Scheduler_, queueCount);
+  id hc = ZEFC_IC_GET(scheduler, sel_holdCount, Scheduler_, holdCount);
 
   id line1 = String__from_utf8("queue count = ");
   line1 = send(line1, ZEFC_SEL_add_o, ZEFC_SEND0(qc, ZEFC_SEL_toString_o));
