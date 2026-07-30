@@ -58,6 +58,16 @@ Parser::parse_stmt()
     s.class_decl = parse_class();
     return s;
   }
+  // Top-level: my name = expr
+  if (check(TokKind::KwMy)) {
+    next();
+    Stmt s;
+    s.kind = Stmt::Kind::VarDecl;
+    s.var_name = expect(TokKind::Ident, "variable name").text;
+    expect(TokKind::Eq, "=");
+    s.expr = parse_expr();
+    return s;
+  }
   Stmt s;
   s.kind = Stmt::Kind::Expr;
   s.expr = parse_expr();
@@ -72,20 +82,29 @@ Parser::parse_class()
   c.name = expect(TokKind::Ident, "class name").text;
   expect(TokKind::LBrace, "{");
   while (!check(TokKind::RBrace) && !check(TokKind::Eof)) {
+    bool is_static = false;
+    if (check(TokKind::KwStatic)) {
+      next();
+      is_static = true;
+    }
     if (check(TokKind::KwReadable) || check(TokKind::KwAccessible) || check(TokKind::KwMy)) {
       const bool is_my = check(TokKind::KwMy);
       const bool is_acc = check(TokKind::KwAccessible);
       next();
       for (;;) {
         Field f;
+        f.is_static = is_static;
         f.name = expect(TokKind::Ident, "field name").text;
         if (is_my) {
-          // private instance field
         } else if (is_acc) {
           f.accessible = true;
           f.readable = true;
         } else {
           f.readable = true;
+        }
+        if (check(TokKind::Eq)) {
+          next();
+          f.init = parse_expr();
         }
         c.fields.push_back(std::move(f));
         if (check(TokKind::Comma)) {
@@ -95,6 +114,9 @@ Parser::parse_class()
         break;
       }
     } else if (check(TokKind::KwFn)) {
+      if (is_static) {
+        throw std::runtime_error("static methods not supported yet");
+      }
       c.methods.push_back(parse_method());
     } else {
       Token t = peek();
@@ -111,7 +133,6 @@ Parser::parse_method()
 {
   expect(TokKind::KwFn, "fn");
   Method m;
-  // fn name(args) body  |  fn (args) body  |  fn name body
   if (check(TokKind::Ident)) {
     m.name = next().text;
   }
@@ -140,10 +161,7 @@ Parser::parse_method_body()
       body.push_back(parse_expr());
     }
     expect(TokKind::RBrace, "}");
-    if (body.empty()) {
-      throw std::runtime_error("empty method body");
-    }
-    return body;
+    return body; // may be empty
   }
   body.push_back(parse_expr());
   return body;

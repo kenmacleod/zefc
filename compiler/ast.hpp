@@ -21,22 +21,24 @@ struct Expr {
     Assign,
   } kind;
 
-  std::string text;              // Ident / String / Number / Dot field / Binary op
-  ExprPtr lhs;                   // Dot / Binary / Assign / Call callee
-  ExprPtr rhs;                   // Binary / Assign
-  std::vector<ExprPtr> args;     // Call
-};
-
-struct Method {
-  std::string name; // empty = constructor
-  std::vector<std::string> params;
-  std::vector<ExprPtr> body; // one or more statements; last yields return value
+  std::string text;
+  ExprPtr lhs;
+  ExprPtr rhs;
+  std::vector<ExprPtr> args;
 };
 
 struct Field {
   std::string name;
   bool readable = false;
   bool accessible = false;
+  bool is_static = false;
+  ExprPtr init;
+};
+
+struct Method {
+  std::string name; // empty = constructor
+  std::vector<std::string> params;
+  std::vector<ExprPtr> body; // may be empty
 };
 
 struct ClassDecl {
@@ -46,9 +48,10 @@ struct ClassDecl {
 };
 
 struct Stmt {
-  enum class Kind { Class, Expr } kind;
+  enum class Kind { Class, Expr, VarDecl } kind;
   ClassDecl class_decl;
   ExprPtr expr;
+  std::string var_name;
 };
 
 struct Program {

@@ -80,3 +80,31 @@ test(
   ],
   suite : 'compiler',
 )
+
+accessors_zef = meson.project_source_root() / 'test/smoke/zef/accessors.zef'
+accessors_gen = custom_target(
+  'accessors_from_zef',
+  input : accessors_zef,
+  output : 'accessors.gen.cpp',
+  command : [zefc_exe, '@INPUT@', '-o', '@OUTPUT@'],
+)
+
+accessors_exe = executable(
+  'zefc-accessors',
+  [accessors_gen] + stdlib_sources,
+  dependencies : [runtime_dep],
+  include_directories : runtime_inc,
+  cpp_args : zefc_cpp_args,
+  install : false,
+)
+
+test(
+  'compiler accessors stdout',
+  python3,
+  args : [
+    meson.project_source_root() / 'test/compiler/check_stdout.py',
+    accessors_exe,
+    meson.project_source_root() / 'test/smoke/expected/accessors.stdout',
+  ],
+  suite : 'compiler',
+)

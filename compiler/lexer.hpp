@@ -17,6 +17,7 @@ enum class TokKind {
   KwReadable,
   KwAccessible,
   KwMy,
+  KwStatic,
   // punct
   LBrace,
   RBrace,

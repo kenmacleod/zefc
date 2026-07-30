@@ -108,6 +108,8 @@ Lexer::lex_one()
       t.kind = TokKind::KwAccessible;
     } else if (id == "my") {
       t.kind = TokKind::KwMy;
+    } else if (id == "static") {
+      t.kind = TokKind::KwStatic;
     } else {
       t.kind = TokKind::Ident;
     }
