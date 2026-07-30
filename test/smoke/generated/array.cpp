@@ -25,6 +25,7 @@ static VTable* Array_vtable = nullptr;
 static id Array__toString_o(id self, int selector, ...);
 static id Array__push_o(id self, int selector, id value);
 static id Array__GET_i(id self, int selector, id index_obj);
+static id Array__PUT_i(id self, int selector, id index_obj, id value);
 static id Array__mul_PUT_i(id self, int selector, id index_obj, id factor_obj);
 static id Array__size_o(id self, int selector, ...);
 
@@ -59,6 +60,15 @@ Array__GET_i(id self, int selector, id index_obj)
   (void)selector;
   int index = static_cast<int>(Int__to_i64(index_obj));
   return body<Array_>(self)->elems.at(static_cast<size_t>(index));
+}
+
+static id
+Array__PUT_i(id self, int selector, id index_obj, id value)
+{
+  (void)selector;
+  int index = static_cast<int>(Int__to_i64(index_obj));
+  body<Array_>(self)->elems.at(static_cast<size_t>(index)) = value;
+  return value;
 }
 
 static id
@@ -99,6 +109,15 @@ Array__new_impl()
   return as_id(arr);
 }
 
+static id
+Array__with_size_impl(int n)
+{
+  Array_* arr = alloc<Array_>();
+  arr->isa_ = Array_vtable;
+  arr->elems.assign(static_cast<size_t>(n), null_id());
+  return as_id(arr);
+}
+
 void
 array_runtime_init()
 {
@@ -107,6 +126,7 @@ array_runtime_init()
   vtable_set(Array_vtable, ZEFC_SEL_toString_o, Array__toString_o);
   vtable_set(Array_vtable, ZEFC_SEL_push_o, Array__push_o);
   vtable_set(Array_vtable, ZEFC_SEL_GET_i, Array__GET_i);
+  vtable_set(Array_vtable, ZEFC_SEL_PUT_i, Array__PUT_i);
   vtable_set(Array_vtable, ZEFC_SEL_mul_PUT_i, Array__mul_PUT_i);
   vtable_set(Array_vtable, ZEFC_SEL_size_o, Array__size_o);
   selector_sites_patch();
@@ -127,6 +147,12 @@ Array__new()
 }
 
 id
+Array__with_size(int n)
+{
+  return runtime::Array__with_size_impl(n);
+}
+
+id
 Array__push(id array, id value)
 {
   return ZEFC_SEND1(array, ZEFC_SEL_push_o, value);
@@ -136,6 +162,12 @@ id
 Array__at(id array, int index)
 {
   return ZEFC_SEND1(array, ZEFC_SEL_GET_i, Int__from_i64(index));
+}
+
+void
+Array__set_at(id array, int index, id value)
+{
+  (void)ZEFC_SEND2(array, ZEFC_SEL_PUT_i, Int__from_i64(index), value);
 }
 
 int

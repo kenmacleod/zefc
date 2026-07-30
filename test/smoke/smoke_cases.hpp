@@ -101,6 +101,8 @@ void smoke_private3();
 void smoke_classinfunction();
 void smoke_classinfunction2();
 void smoke_nbody();
+void smoke_splay();
+void smoke_richards();
 void smoke_test21();
 void smoke_test28();
 void smoke_test39();

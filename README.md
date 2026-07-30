@@ -2,7 +2,7 @@
 
 ZefC is a compiler that transpiles the [Zef](https://zef-lang.dev/) language to C++, targeting [Fil-C++](https://github.com/pizlonator/fil-c/) for memory safety and garbage collection. Dispatch uses shared-namespace virtual tables with selector IDs (patterns borrowed from [Orchard-C](https://github.com/kenmacleod/orchard-c); this project does not depend on Zef or Orchard as build dependencies).
 
-The end goal is Zef semantics with **C++-like virtual-call cost** on the hot path (~vptr + `vtable[imm]` + call), plus dynamic package loading via load-time selector patching.
+The end goal is Zef semantics with **C++-like virtual-call cost** on the hot path (~vptr + `vtable[imm]` + call), plus dynamic package loading via load-time selector patching. Vtables alone are not enough for Zef-like ScriptBench speed — see the **performance model** in [docs/dispatch-and-loading.md](docs/dispatch-and-loading.md).
 
 More detail: [docs/index.md](docs/index.md), [docs/dispatch-and-loading.md](docs/dispatch-and-loading.md).
 
@@ -48,7 +48,7 @@ More detail: [docs/index.md](docs/index.md), [docs/dispatch-and-loading.md](docs
 2. Meson project, Fil-C++ setup (`tools/setup-build.sh`, native file), minimal shared runtime.
 3. Smoke harness: hand-compiled stand-ins for Zef tests, golden stdout/stderr, mini String/Int/Array runtime ([test/smoke/](test/smoke/)).
 4. Dispatch/load design contract: C++-like hot path, load-time immediate patching ([docs/dispatch-and-loading.md](docs/dispatch-and-loading.md)).
-5. **Dispatch ABI** — Growable registry, `VTable` growth, `ZEFC_SITE` / `ZEFC_SEL_*`, NaN-box Double + Int32, field IC (`ZEFC_IC_*`), ScriptBench `nbody`. **← Next:** more ScriptBench / compiler; reloc patch for late selectors.
+5. **Dispatch ABI** — Growable registry, `VTable` growth, `ZEFC_SITE` / `ZEFC_SEL_*`, NaN-box Double + Int32, field IC (`ZEFC_IC_*`), ScriptBench `nbody` / `splay` / `richards`. Perf model (vtable vs field IC vs immediates vs Fil-C) documented. **← Next:** field IC → inlined load; optional method IC; compiler; reloc patch for late selectors.
 6. ZefC compiler: parse `.zef` / preprocess `.zefc`, emit C++ that matches the dispatch ABI.
 7. Broader coverage of the [Zef](https://zef-lang.dev/) test suite (packages, and `load` via AOT modules or compile-on-load).
 8. Packaging and distribution of the compiler and of code ZefC emits.

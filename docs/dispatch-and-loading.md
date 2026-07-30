@@ -8,6 +8,22 @@ This document is the contract for ZefC’s Orchard-style dispatch under dynamic 
 - **Allow packages to load after other TUs exist** without rebuilding every translation unit or assigning selector IDs in a closed world at compile time.
 - **Preserve Zef’s “no funny business”** for objects/classes: load-time patching affects dispatch tables and call-site constants, not arbitrary object/class mutation.
 
+## Performance model (where we are vs headed)
+
+**Lesson:** Orchard vtables alone are **not** Zef parity. Zef’s ScriptBench wins come from **several** hot-path shapes working together under Fil-C++, not from “virtual calls only.”
+
+| Mechanism | Role | ZefC today | Headed |
+|-----------|------|------------|--------|
+| **Vtable send** | Polymorphic / unknown methods: `isa_` → `slots[sel]` → call | Landed (`ZEFC_SEND*`). Target cost ≈ C++ virtual call when `sel` is immediate. | Same ABI; optional **per-site method IC** (direct callee after class guard) so hot sends skip the table |
+| **Selector immediates** | Keep `sel` out of a per-send global/GOT load | **Closed-world** `ZEFC_SEL_*` literals; dynamic names use `ZEFC_SITE` cells | Reloc / text-imm patch for late names under Fil-C W^X |
+| **Immediate values** | Int/Double ops without heap + vtable | NaN-box Double; low-bit Int32; `ZEFC_SEND*` short-circuits | Keep; extend bitops/cmp short-circuits as benches need |
+| **Field IC** | Accessible get/set is most of nbody/splay traffic | `ZEFC_IC_*`: per-site guard + **cached typed accessor call** (Fil-C-friendly) | Steady-state like Zef: guard + **inlined load/store** (byte offset / member) — no call |
+| **Fil-C++** | Memory safety + GC for runtime and generated code | Both Zef and ZefC Fil-C builds are the fair comparison; g++ is a separate baseline | Same. Fil-C allows in-bounds field loads; it does **not** make an extra indirect call free |
+
+**Fairness:** optimize shared runtime and transpile-shaped emission (above). Do not hand-specialize one bench with raw `body->field` unless CHA/compiler would. A compiler that only emits today’s shape will not close the Fil-C gap vs Zef; one that lowers **offset field IC** (and optionally method IC) can.
+
+ScriptBench smoke (`nbody`, `splay`, `richards`) exercises this stack; see [test/smoke/README.md](../test/smoke/README.md).
+
 ## Non-goals (hot path)
 
 - Loading a selector ID from a global, GOT, or registry **on every send**.
@@ -121,6 +137,4 @@ Instruction-count verification under Fil-C++ is a follow-on check, not a gate fo
 - **First milestone module load:** explicit `module_register` / `module_load` without a separate `.so`.
 - **Closed-world skip:** not implemented; sites still go through the patch path.
 
-Next toward the ideal hot path: reloc/text-imm patch for selectors **not** in the closed-world set; optionally flatten `isa_` back to `zefc_method*` with a non-moving slot allocator.
-
-**Monomorphic fields / field IC:** accessible get/set may use a per-site inline cache (`ZEFC_IC_GET` / `ZEFC_IC_SET`): first access resolves `(vtable, selector) → typed get/set` via `field_register_get` / `field_register_set`; later hits guard on `isa_` and call the cached function (typed field load/store — Fil-C-friendly). Miss without registration falls back to a full send. This mirrors Zef’s field IC idea (Zef caches an offset; we cache a typed accessor under Fil-C).
+Next toward the ideal hot path: reloc/text-imm patch for selectors **not** in the closed-world set; field IC → true inlined load (see **Performance model**); optionally flatten `isa_` back to `zefc_method*` with a non-moving slot allocator.

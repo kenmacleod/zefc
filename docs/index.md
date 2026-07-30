@@ -40,7 +40,7 @@ ZefC is a compiler that transpiles the Zef language to C++, using Orchard-C (Orc
 
 ### New since Orchard
 
-**Dynamic Loading.** ZefC, like Zef, allows packages to be loaded at run time and vtables to grow. Selector IDs are assigned at load; **call-site immediates are patched once** by constructors (PIC-style relocation), so the steady-state send stays C++-like (~vptr + `vtable[imm]` + call)—not an extra selector load per send. Like Zef, ZefC does not allow object/class mutation. Each TU compiles independently; Zef’s `load` of source is a runtime concern and does not couple ASTs at compile time. See [dispatch-and-loading.md](dispatch-and-loading.md).
+**Dynamic Loading.** ZefC, like Zef, allows packages to be loaded at run time and vtables to grow. Selector IDs are assigned at load; **call-site immediates are patched once** by constructors (PIC-style relocation), so the steady-state send stays C++-like (~vptr + `vtable[imm]` + call)—not an extra selector load per send. Like Zef, ZefC does not allow object/class mutation. Each TU compiles independently; Zef’s `load` of source is a runtime concern and does not couple ASTs at compile time. See [dispatch-and-loading.md](dispatch-and-loading.md) (including the **performance model**: vtables alone ≠ Zef; field IC + immediates + Fil-C).
 
 **Intermix Zef and C++.**  .zefc (C++ with ZefC patterns) files do this and replace .moc. .zef files are Zef-only, transpiled by the ZefC parser/compiler.
 

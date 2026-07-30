@@ -10,7 +10,7 @@ End-to-end checks against Zef goldens from the sibling [Zef](https://github.com/
 
 **`zef/` ↔ `generated/` fidelity varies** — see [Fidelity](#fidelity). Prefer **structure** cases when studying dispatch; many package prints are still stubs. The comment `Generated from … (hand-maintained)` means paired goldens, not that every file is a full lowering.
 
-**Bench fairness:** Optimize shared runtime and transpile-shaped emission (immediates, `ZEFC_SEL_*`, field IC, fixed-arity methods). Do not hand-specialize a single case with direct struct access unless the compiler would (CHA); field IC is the general Zef-like mechanism.
+**Bench fairness:** Optimize shared runtime and transpile-shaped emission (immediates, `ZEFC_SEL_*`, field IC, fixed-arity methods). Do not hand-specialize a single case with direct struct access unless the compiler would (CHA); field IC is the general Zef-like mechanism. Full stack (vtable ≠ Zef alone): [docs/dispatch-and-loading.md](../../docs/dispatch-and-loading.md) § Performance model.
 
 **Dispatch ABI:** Known names use closed-world `ZEFC_SEL_*` integer literals (`vtable[imm]`); late/dynamic names use `ZEFC_SITE("…")` cells ([docs/dispatch-and-loading.md](../../docs/dispatch-and-loading.md)). Ideal end state: reloc/text-imm patch for the dynamic set too.
 
@@ -45,6 +45,8 @@ C++ has objects / closures / vtables / `send` you can map to the Zef (transpile-
 | `test30` | Instance identity `==` via `eq` send |
 | `patch1` | **ABI acceptance:** load A then B; site cells; vtable growth |
 | `nbody` | ScriptBench n-body: Body fields via **field IC** (`ZEFC_IC_*`); Double imm + `ZEFC_SEL_*` |
+| `splay` | ScriptBench splay: tree methods via sends; node/payload fields via **field IC**; closure traverse |
+| `richards` | ScriptBench Richards: scheduler/TCB/tasks via sends + field IC; Array `PUT_i` / sized ctor |
 
 ### Behavioral / sequencing
 

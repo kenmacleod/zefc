@@ -32,6 +32,7 @@ enum : int {
   ZEFC_SEL_set_vx_o,
   ZEFC_SEL_set_vy_o,
   ZEFC_SEL_set_vz_o,
+  ZEFC_SEL_PUT_i,
   ZEFC_SEL_KNOWN_END // next free ID for selector_intern
 };
 

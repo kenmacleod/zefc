@@ -28,6 +28,7 @@ known_selectors_init()
   selector_reserve("set_vx_o", ZEFC_SEL_set_vx_o);
   selector_reserve("set_vy_o", ZEFC_SEL_set_vy_o);
   selector_reserve("set_vz_o", ZEFC_SEL_set_vz_o);
+  selector_reserve("PUT_i", ZEFC_SEL_PUT_i);
 }
 
 } // namespace zefc

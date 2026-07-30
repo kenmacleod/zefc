@@ -87,6 +87,8 @@ smoke_cases = [
   'classinfunction2',
   'patch1',
   'nbody',
+  'splay',
+  'richards',
 ]
 
 smoke_error_cases = [
@@ -212,6 +214,8 @@ smoke_sources = files(
   'generated/case_classinfunction2.cpp',
   'generated/case_patch1.cpp',
   'generated/case_nbody.cpp',
+  'generated/case_splay.cpp',
+  'generated/case_richards.cpp',
   'generated/case_test21.cpp',
   'generated/case_test28.cpp',
   'generated/case_test39.cpp',
@@ -242,6 +246,7 @@ foreach case : smoke_cases
       expected,
     ],
     suite : 'smoke',
+    timeout : case == 'splay' ? 600 : 30,
   )
 endforeach
 
