@@ -31,13 +31,12 @@ mangle_escape(const std::string& s)
 std::string
 mangle_method(const std::string& name, size_t arity)
 {
-  // Orchard-style: name + '_' + arity encoding with 'o' per object arg.
   std::string m = name + "_";
   for (size_t i = 0; i < arity; ++i) {
     m.push_back('o');
   }
   if (arity == 0) {
-    m.push_back('o'); // zero-arg instance method still ends with _o in ZefC smoke
+    m.push_back('o');
   }
   return m;
 }
@@ -63,7 +62,7 @@ sel_expr(const std::string& mangled)
 struct ClassInfo {
   const ClassDecl* decl = nullptr;
   std::unordered_set<std::string> field_names;
-  std::unordered_set<std::string> param_names; // filled per-method during emit
+  std::unordered_set<std::string> param_names;
 };
 
 struct Ctx {
@@ -79,6 +78,7 @@ struct Ctx {
 };
 
 void emit_expr(Ctx& ctx, const Expr& e, const std::string& dst);
+void emit_expr_top(Ctx& ctx, const Expr& e, const std::string& dst);
 
 bool
 is_field(const Ctx& ctx, const std::string& name)
@@ -93,14 +93,38 @@ is_field(const Ctx& ctx, const std::string& name)
 }
 
 void
+emit_send(Ctx& ctx, const std::string& recv, const std::string& mangled,
+          const std::vector<std::string>& args, const std::string& dst)
+{
+  const std::string sel = sel_expr(mangled);
+  if (args.empty()) {
+    ctx.out << "  " << dst << " = ZEFC_SEND0(" << recv << ", " << sel << ");\n";
+  } else if (args.size() == 1) {
+    ctx.out << "  " << dst << " = ZEFC_SEND1(" << recv << ", " << sel << ", " << args[0]
+            << ");\n";
+  } else if (args.size() == 2) {
+    ctx.out << "  " << dst << " = ZEFC_SEND2(" << recv << ", " << sel << ", " << args[0]
+            << ", " << args[1] << ");\n";
+  } else if (args.size() == 3) {
+    ctx.out << "  " << dst << " = ZEFC_SEND3(" << recv << ", " << sel << ", " << args[0]
+            << ", " << args[1] << ", " << args[2] << ");\n";
+  } else if (args.size() == 4) {
+    ctx.out << "  " << dst << " = ZEFC_SEND4(" << recv << ", " << sel << ", " << args[0]
+            << ", " << args[1] << ", " << args[2] << ", " << args[3] << ");\n";
+  } else {
+    throw std::runtime_error("send arity >4 not supported yet");
+  }
+}
+
+void
 emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
 {
   switch (e.kind) {
   case Expr::Kind::Ident: {
     if (is_field(ctx, e.text)) {
+      // Private/own fields: direct load (getters cover foreign .x sends).
       const std::string& cls = ctx.current_class->decl->name;
-      ctx.out << "  " << dst << " = ZEFC_IC_GET(self, " << sel_expr(mangle_getter(e.text))
-              << ", " << cls << "_, " << e.text << ");\n";
+      ctx.out << "  " << dst << " = body<" << cls << "_>(self)->" << e.text << ";\n";
     } else {
       ctx.out << "  " << dst << " = " << e.text << ";\n";
     }
@@ -116,9 +140,7 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
     const std::string recv = ctx.fresh("t");
     ctx.out << "  id " << recv << ";\n";
     emit_expr(ctx, *e.lhs, recv);
-    // member send: zero-arg method (toString) or field get on other object — treat as send
-    const std::string mangled = mangle_method(e.text, 0);
-    ctx.out << "  " << dst << " = ZEFC_SEND0(" << recv << ", " << sel_expr(mangled) << ");\n";
+    emit_send(ctx, recv, mangle_method(e.text, 0), {}, dst);
     return;
   }
   case Expr::Kind::Binary: {
@@ -143,7 +165,6 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
     emit_expr(ctx, *e.rhs, rhs);
     if (is_field(ctx, name)) {
       const std::string& cls = ctx.current_class->decl->name;
-      // readable-only: still allow ctor assign via direct store + optional IC set
       ctx.out << "  body<" << cls << "_>(self)->" << name << " = " << rhs << ";\n";
       ctx.out << "  " << dst << " = " << rhs << ";\n";
     } else {
@@ -172,16 +193,13 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
       return;
     }
     if (ctx.classes.count(callee)) {
-      // Class ctor
-      if (arg_tmps.size() != 1) {
-        // support N args later; hello uses 1
-        throw std::runtime_error("ctor arity: only 1-arg ctors in this milestone");
+      ctx.out << "  " << dst << " = " << callee << "__new(null_id(), 0";
+      for (const std::string& a : arg_tmps) {
+        ctx.out << ", " << a;
       }
-      ctx.out << "  " << dst << " = " << callee << "__new(null_id(), 0, " << arg_tmps[0]
-              << ");\n";
+      ctx.out << ");\n";
       return;
     }
-    // Method send on implicit? not supported — need recv.method(args) as Dot+Call
     throw std::runtime_error("unknown call target: " + callee);
   }
   }
@@ -191,7 +209,6 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
 void
 emit_expr_top(Ctx& ctx, const Expr& e, const std::string& dst)
 {
-  // Handle recv.name(args): parser builds Call with lhs=Dot
   if (e.kind == Expr::Kind::Call && e.lhs && e.lhs->kind == Expr::Kind::Dot) {
     const std::string recv = ctx.fresh("t");
     ctx.out << "  id " << recv << ";\n";
@@ -202,18 +219,30 @@ emit_expr_top(Ctx& ctx, const Expr& e, const std::string& dst)
       ctx.out << "  id " << arg_tmps.back() << ";\n";
       emit_expr(ctx, *e.args[i], arg_tmps.back());
     }
-    const std::string mangled = mangle_method(e.lhs->text, e.args.size());
-    if (e.args.empty()) {
-      ctx.out << "  " << dst << " = ZEFC_SEND0(" << recv << ", " << sel_expr(mangled) << ");\n";
-    } else if (e.args.size() == 1) {
-      ctx.out << "  " << dst << " = ZEFC_SEND1(" << recv << ", " << sel_expr(mangled) << ", "
-              << arg_tmps[0] << ");\n";
-    } else {
-      throw std::runtime_error("send arity >1 not in this milestone");
-    }
+    emit_send(ctx, recv, mangle_method(e.lhs->text, e.args.size()), arg_tmps, dst);
     return;
   }
   emit_expr(ctx, e, dst);
+}
+
+void
+emit_body(Ctx& ctx, const std::vector<ExprPtr>& body, const std::string& result_dst,
+          bool ctor_return_self)
+{
+  if (body.empty()) {
+    throw std::runtime_error("empty method body");
+  }
+  for (size_t i = 0; i + 1 < body.size(); ++i) {
+    const std::string t = ctx.fresh("t");
+    ctx.out << "  id " << t << ";\n";
+    emit_expr_top(ctx, *body[i], t);
+  }
+  emit_expr_top(ctx, *body.back(), result_dst);
+  if (ctor_return_self) {
+    ctx.out << "  return self;\n";
+  } else {
+    ctx.out << "  return " << result_dst << ";\n";
+  }
 }
 
 void
@@ -243,19 +272,18 @@ emit_class(Ctx& ctx, const ClassDecl& c)
   ctx.out << "};\n\n";
   ctx.out << "static VTable* " << name << "_vtable = nullptr;\n\n";
 
-  // Forward decls
   for (const Method& m : c.methods) {
     if (m.name.empty()) {
       ctx.out << "static id " << name << "__new(id, int selector";
       for (size_t i = 0; i < m.params.size(); ++i) {
-        ctx.out << ", id " << m.params[i];
+        ctx.out << ", id p" << i;
       }
       ctx.out << ");\n";
     } else {
       const std::string mangled = mangle_method(m.name, m.params.size());
       ctx.out << "static id " << name << "__" << mangled << "(id self, int selector";
       for (size_t i = 0; i < m.params.size(); ++i) {
-        ctx.out << ", id a" << i;
+        ctx.out << ", id p" << i;
       }
       ctx.out << ");\n";
     }
@@ -272,7 +300,6 @@ emit_class(Ctx& ctx, const ClassDecl& c)
     }
 
     if (m.name.empty()) {
-      // constructor
       ctx.out << "static id\n" << name << "__new(id, int selector";
       for (size_t i = 0; i < m.params.size(); ++i) {
         ctx.out << ", id " << m.params[i];
@@ -283,8 +310,8 @@ emit_class(Ctx& ctx, const ClassDecl& c)
       ctx.out << "  zefc_set_isa(self_b, " << name << "_vtable);\n";
       const std::string tmp = ctx.fresh("t");
       ctx.out << "  id " << tmp << ";\n";
-      emit_expr_top(ctx, *m.body, tmp);
-      ctx.out << "  return self;\n}\n\n";
+      emit_body(ctx, m.body, tmp, true);
+      ctx.out << "}\n\n";
     } else {
       const std::string mangled = mangle_method(m.name, m.params.size());
       ctx.out << "static id\n" << name << "__" << mangled << "(id self, int selector";
@@ -294,12 +321,11 @@ emit_class(Ctx& ctx, const ClassDecl& c)
       ctx.out << ")\n{\n  (void)selector;\n";
       const std::string tmp = ctx.fresh("t");
       ctx.out << "  id " << tmp << ";\n";
-      emit_expr_top(ctx, *m.body, tmp);
-      ctx.out << "  return " << tmp << ";\n}\n\n";
+      emit_body(ctx, m.body, tmp, false);
+      ctx.out << "}\n\n";
     }
   }
 
-  // ensure / vtable init
   ctx.out << "static void\nensure_" << name << "()\n{\n";
   ctx.out << "  if (" << name << "_vtable) {\n    return;\n  }\n";
   ctx.out << "  " << name << "_vtable = vtable_create();\n";
@@ -308,6 +334,10 @@ emit_class(Ctx& ctx, const ClassDecl& c)
       ctx.out << "  field_register_get(" << name << "_vtable, selector_intern(\""
               << mangle_getter(f.name) << "\"), offsetof(" << name << "_, " << f.name
               << "));\n";
+      if (f.accessible) {
+        ctx.out << "  field_register_set(" << name << "_vtable, selector_intern(\"set_"
+                << f.name << "_o\"), offsetof(" << name << "_, " << f.name << "));\n";
+      }
     }
   }
   for (const Method& m : c.methods) {
@@ -363,7 +393,6 @@ codegen_cpp(const Program& program, const std::string& source_path)
       ctx.out << "  id " << tmp << ";\n";
       ctx.current_class = nullptr;
       emit_expr_top(ctx, *s.expr, tmp);
-      (void)tmp;
     }
   }
   ctx.out << "  return 0;\n}\n";

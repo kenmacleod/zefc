@@ -6,7 +6,7 @@ Transpiles `.zef` → C++ that uses the shared runtime dispatch ABI (`ZEFC_SEND*
 
 ## Status
 
-First milestone: enough of the language for `test/smoke/zef/hello.zef` (class, `readable`, ctor/`fn`, `+`, `.` sends, `println`, string literals).
+First milestones: `hello.zef` and `test3.zef` (class, `my`/`readable`, blocks, multi-arg ctor, getters, `+`, `.` sends, `println`).
 
 ```bash
 ninja -C build compiler/zefc

@@ -23,6 +23,7 @@ private:
   Stmt parse_stmt();
   ClassDecl parse_class();
   Method parse_method();
+  std::vector<ExprPtr> parse_method_body();
   ExprPtr parse_expr();
   ExprPtr parse_assign();
   ExprPtr parse_add();

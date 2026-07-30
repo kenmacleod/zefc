@@ -30,7 +30,7 @@ struct Expr {
 struct Method {
   std::string name; // empty = constructor
   std::vector<std::string> params;
-  ExprPtr body;
+  std::vector<ExprPtr> body; // one or more statements; last yields return value
 };
 
 struct Field {

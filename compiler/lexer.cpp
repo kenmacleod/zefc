@@ -106,6 +106,8 @@ Lexer::lex_one()
       t.kind = TokKind::KwReadable;
     } else if (id == "accessible") {
       t.kind = TokKind::KwAccessible;
+    } else if (id == "my") {
+      t.kind = TokKind::KwMy;
     } else {
       t.kind = TokKind::Ident;
     }

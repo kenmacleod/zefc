@@ -72,18 +72,28 @@ Parser::parse_class()
   c.name = expect(TokKind::Ident, "class name").text;
   expect(TokKind::LBrace, "{");
   while (!check(TokKind::RBrace) && !check(TokKind::Eof)) {
-    if (check(TokKind::KwReadable) || check(TokKind::KwAccessible)) {
-      Field f;
-      if (check(TokKind::KwReadable)) {
-        next();
-        f.readable = true;
-      } else {
-        next();
-        f.accessible = true;
-        f.readable = true;
+    if (check(TokKind::KwReadable) || check(TokKind::KwAccessible) || check(TokKind::KwMy)) {
+      const bool is_my = check(TokKind::KwMy);
+      const bool is_acc = check(TokKind::KwAccessible);
+      next();
+      for (;;) {
+        Field f;
+        f.name = expect(TokKind::Ident, "field name").text;
+        if (is_my) {
+          // private instance field
+        } else if (is_acc) {
+          f.accessible = true;
+          f.readable = true;
+        } else {
+          f.readable = true;
+        }
+        c.fields.push_back(std::move(f));
+        if (check(TokKind::Comma)) {
+          next();
+          continue;
+        }
+        break;
       }
-      f.name = expect(TokKind::Ident, "field name").text;
-      c.fields.push_back(std::move(f));
     } else if (check(TokKind::KwFn)) {
       c.methods.push_back(parse_method());
     } else {
@@ -116,8 +126,27 @@ Parser::parse_method()
     }
     expect(TokKind::RParen, ")");
   }
-  m.body = parse_expr();
+  m.body = parse_method_body();
   return m;
+}
+
+std::vector<ExprPtr>
+Parser::parse_method_body()
+{
+  std::vector<ExprPtr> body;
+  if (check(TokKind::LBrace)) {
+    next();
+    while (!check(TokKind::RBrace) && !check(TokKind::Eof)) {
+      body.push_back(parse_expr());
+    }
+    expect(TokKind::RBrace, "}");
+    if (body.empty()) {
+      throw std::runtime_error("empty method body");
+    }
+    return body;
+  }
+  body.push_back(parse_expr());
+  return body;
 }
 
 ExprPtr

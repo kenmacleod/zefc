@@ -52,3 +52,31 @@ test(
   ],
   suite : 'compiler',
 )
+
+test3_zef = meson.project_source_root() / 'test/smoke/zef/test3.zef'
+test3_gen = custom_target(
+  'test3_from_zef',
+  input : test3_zef,
+  output : 'test3.gen.cpp',
+  command : [zefc_exe, '@INPUT@', '-o', '@OUTPUT@'],
+)
+
+test3_exe = executable(
+  'zefc-test3',
+  [test3_gen] + stdlib_sources,
+  dependencies : [runtime_dep],
+  include_directories : runtime_inc,
+  cpp_args : zefc_cpp_args,
+  install : false,
+)
+
+test(
+  'compiler test3 stdout',
+  python3,
+  args : [
+    meson.project_source_root() / 'test/compiler/check_stdout.py',
+    test3_exe,
+    meson.project_source_root() / 'test/smoke/expected/test3.stdout',
+  ],
+  suite : 'compiler',
+)
