@@ -78,9 +78,11 @@ Parser::parse_program()
 Stmt
 Parser::parse_stmt()
 {
+  const int line = peek().line;
   if (check(TokKind::KwPackage)) {
     Stmt s;
     s.kind = Stmt::Kind::Package;
+    s.line = line;
     s.package_decl = parse_package();
     return s;
   }
@@ -88,6 +90,7 @@ Parser::parse_stmt()
     next();
     Stmt s;
     s.kind = Stmt::Kind::Import;
+    s.line = line;
     s.import_path.push_back(expect(TokKind::Ident, "package name").text);
     while (check(TokKind::Dot)) {
       next();
@@ -98,6 +101,7 @@ Parser::parse_stmt()
   if (check(TokKind::KwClass)) {
     Stmt s;
     s.kind = Stmt::Kind::Class;
+    s.line = line;
     s.class_decl = parse_class();
     return s;
   }
@@ -122,15 +126,18 @@ Parser::parse_stmt()
         }
         expect(TokKind::RParen, ")");
       }
+      f.line = line;
       f.body = parse_method_body();
       Stmt s;
       s.kind = Stmt::Kind::Func;
+      s.line = line;
       s.func_decl = std::move(f);
       return s;
     }
     // Anonymous fn expression at top level — rebuild Lambda.
     auto lam = std::make_unique<Expr>();
     lam->kind = Expr::Kind::Lambda;
+    lam->line = line;
     if (check(TokKind::LParen)) {
       next();
       if (!check(TokKind::RParen)) {
@@ -145,6 +152,7 @@ Parser::parse_stmt()
     lam->body = parse_method_body();
     Stmt s;
     s.kind = Stmt::Kind::Expr;
+    s.line = line;
     s.expr = std::move(lam);
     return s;
   }
@@ -153,6 +161,7 @@ Parser::parse_stmt()
     next();
     Stmt s;
     s.kind = Stmt::Kind::VarDecl;
+    s.line = line;
     s.var_name = expect(TokKind::Ident, "variable name").text;
     if (check(TokKind::Eq)) {
       next();
@@ -163,32 +172,38 @@ Parser::parse_stmt()
   if (check(TokKind::KwWhile)) {
     Stmt s;
     s.kind = Stmt::Kind::Expr;
+    s.line = line;
     s.expr = parse_while();
     return s;
   }
   if (check(TokKind::KwIf)) {
     Stmt s;
     s.kind = Stmt::Kind::Expr;
+    s.line = line;
     s.expr = parse_if();
     return s;
   }
   if (check(TokKind::KwBreak) || check(TokKind::KwContinue)) {
     auto e = std::make_unique<Expr>();
     e->kind = check(TokKind::KwBreak) ? Expr::Kind::Break : Expr::Kind::Continue;
+    e->line = line;
     next();
     Stmt s;
     s.kind = Stmt::Kind::Expr;
+    s.line = line;
     s.expr = std::move(e);
     return s;
   }
   if (check(TokKind::KwReturn)) {
     Stmt s;
     s.kind = Stmt::Kind::Expr;
+    s.line = line;
     s.expr = parse_return();
     return s;
   }
   Stmt s;
   s.kind = Stmt::Kind::Expr;
+  s.line = line;
   s.expr = parse_expr();
   return s;
 }
@@ -196,8 +211,10 @@ Parser::parse_stmt()
 ClassDecl
 Parser::parse_class()
 {
+  const int line = peek().line;
   expect(TokKind::KwClass, "class");
   ClassDecl c;
+  c.line = line;
   c.name = expect(TokKind::Ident, "class name").text;
   if (check(TokKind::Colon)) {
     next();
@@ -236,6 +253,7 @@ Parser::parse_class()
       next();
       for (;;) {
         Field f;
+        f.line = peek().line;
         f.is_static = is_static;
         f.name = expect(TokKind::Ident, "field name").text;
         if (is_my) {
@@ -273,6 +291,7 @@ Parser::parse_class()
 PackageDecl
 Parser::parse_package()
 {
+  const int line = peek().line;
   expect(TokKind::KwPackage, "package");
   std::vector<std::string> path;
   path.push_back(expect(TokKind::Ident, "package name").text);
@@ -295,6 +314,7 @@ Parser::parse_package()
       next();
       for (;;) {
         Field f;
+        f.line = peek().line;
         f.name = expect(TokKind::Ident, "field name").text;
         if (is_my) {
         } else if (is_acc) {
@@ -324,6 +344,7 @@ Parser::parse_package()
         body.ctor_body = std::move(m.body);
       } else {
         FuncDecl f;
+        f.line = m.line;
         f.name = m.name;
         f.params = m.params;
         f.body = std::move(m.body);
@@ -339,6 +360,7 @@ Parser::parse_package()
 
   // `package foo.bar.baz { body }` → nest empty packages with body on the leaf.
   PackageDecl root;
+  root.line = line;
   root.name = path[0];
   PackageDecl* leaf = &root;
   for (size_t i = 1; i < path.size(); ++i) {
@@ -361,8 +383,10 @@ Parser::parse_package()
 Method
 Parser::parse_method()
 {
+  const int line = peek().line;
   expect(TokKind::KwFn, "fn");
   Method m;
+  m.line = line;
   if (check(TokKind::Ident)) {
     m.name = next().text;
   }
@@ -384,8 +408,10 @@ Parser::parse_method()
 FuncDecl
 Parser::parse_func()
 {
+  const int line = peek().line;
   expect(TokKind::KwFn, "fn");
   FuncDecl f;
+  f.line = line;
   f.name = expect(TokKind::Ident, "function name").text;
   if (check(TokKind::LParen)) {
     next();
@@ -430,10 +456,12 @@ Parser::parse_method_body()
 BlockItem
 Parser::parse_block_item()
 {
+  const int line = peek().line;
   // Nested / scope-local class
   if (check(TokKind::KwClass)) {
     BlockItem item;
     item.kind = BlockItem::Kind::Class;
+    item.line = line;
     item.nested_class = std::make_unique<ClassDecl>(parse_class());
     return item;
   }
@@ -442,6 +470,7 @@ Parser::parse_block_item()
     next();
     BlockItem item;
     item.kind = BlockItem::Kind::VarDecl;
+    item.line = line;
     item.var_name = expect(TokKind::Ident, "variable name").text;
     if (check(TokKind::Eq)) {
       next();
@@ -455,9 +484,11 @@ Parser::parse_block_item()
     if (check(TokKind::Ident)) {
       BlockItem item;
       item.kind = BlockItem::Kind::VarDecl;
+      item.line = line;
       item.var_name = next().text;
       auto lam = std::make_unique<Expr>();
       lam->kind = Expr::Kind::Lambda;
+      lam->line = line;
       if (check(TokKind::LParen)) {
         next();
         if (!check(TokKind::RParen)) {
@@ -476,6 +507,7 @@ Parser::parse_block_item()
     // Anonymous lambda as expression statement.
     auto lam = std::make_unique<Expr>();
     lam->kind = Expr::Kind::Lambda;
+    lam->line = line;
     if (check(TokKind::LParen)) {
       next();
       if (!check(TokKind::RParen)) {
@@ -490,38 +522,45 @@ Parser::parse_block_item()
     lam->body = parse_method_body();
     BlockItem item;
     item.kind = BlockItem::Kind::Expr;
+    item.line = line;
     item.expr = std::move(lam);
     return item;
   }
   if (check(TokKind::KwWhile)) {
     BlockItem item;
     item.kind = BlockItem::Kind::Expr;
+    item.line = line;
     item.expr = parse_while();
     return item;
   }
   if (check(TokKind::KwIf)) {
     BlockItem item;
     item.kind = BlockItem::Kind::Expr;
+    item.line = line;
     item.expr = parse_if();
     return item;
   }
   if (check(TokKind::KwBreak) || check(TokKind::KwContinue)) {
     auto e = std::make_unique<Expr>();
     e->kind = check(TokKind::KwBreak) ? Expr::Kind::Break : Expr::Kind::Continue;
+    e->line = line;
     next();
     BlockItem item;
     item.kind = BlockItem::Kind::Expr;
+    item.line = line;
     item.expr = std::move(e);
     return item;
   }
   if (check(TokKind::KwReturn)) {
     BlockItem item;
     item.kind = BlockItem::Kind::Expr;
+    item.line = line;
     item.expr = parse_return();
     return item;
   }
   BlockItem item;
   item.kind = BlockItem::Kind::Expr;
+  item.line = line;
   item.expr = parse_expr();
   return item;
 }
@@ -529,10 +568,12 @@ Parser::parse_block_item()
 ExprPtr
 Parser::parse_while()
 {
+  const int line = peek().line;
   expect(TokKind::KwWhile, "while");
   expect(TokKind::LParen, "(");
   auto e = std::make_unique<Expr>();
   e->kind = Expr::Kind::While;
+  e->line = line;
   e->lhs = parse_expr();
   expect(TokKind::RParen, ")");
   e->body = parse_method_body();
@@ -542,10 +583,12 @@ Parser::parse_while()
 ExprPtr
 Parser::parse_if()
 {
+  const int line = peek().line;
   expect(TokKind::KwIf, "if");
   expect(TokKind::LParen, "(");
   auto e = std::make_unique<Expr>();
   e->kind = Expr::Kind::If;
+  e->line = line;
   e->lhs = parse_expr();
   expect(TokKind::RParen, ")");
   e->body = parse_method_body();
@@ -559,9 +602,11 @@ Parser::parse_if()
 ExprPtr
 Parser::parse_return()
 {
+  const int line = peek().line;
   expect(TokKind::KwReturn, "return");
   auto e = std::make_unique<Expr>();
   e->kind = Expr::Kind::Return;
+  e->line = line;
   // `return` or `return expr` — newline ends a bare return.
   if (check(TokKind::Eof) || check(TokKind::RBrace) || check(TokKind::Semicolon) ||
       peek().after_newline) {
@@ -593,6 +638,7 @@ Parser::parse_assign()
     a->kind = Expr::Kind::Assign;
     a->text = op;
     a->lhs = std::move(e);
+    a->line = a->lhs->line;
     a->rhs = parse_assign();
     return a;
   }
@@ -610,6 +656,7 @@ Parser::parse_bitand()
     b->kind = Expr::Kind::Binary;
     b->text = "&";
     b->lhs = std::move(e);
+    b->line = b->lhs->line;
     b->rhs = parse_equality();
     e = std::move(b);
   }
@@ -626,6 +673,7 @@ Parser::parse_equality()
     b->kind = Expr::Kind::Binary;
     b->text = "==";
     b->lhs = std::move(e);
+    b->line = b->lhs->line;
     b->rhs = parse_relational();
     e = std::move(b);
   }
@@ -654,6 +702,7 @@ Parser::parse_relational()
     b->kind = Expr::Kind::Binary;
     b->text = op;
     b->lhs = std::move(e);
+    b->line = b->lhs->line;
     b->rhs = parse_add();
     e = std::move(b);
   }
@@ -678,6 +727,7 @@ Parser::parse_add()
     b->kind = Expr::Kind::Binary;
     b->text = is_minus ? "-" : "+";
     b->lhs = std::move(e);
+    b->line = b->lhs->line;
     b->rhs = parse_mul();
     e = std::move(b);
   }
@@ -700,6 +750,7 @@ Parser::parse_mul()
     b->kind = Expr::Kind::Binary;
     b->text = op;
     b->lhs = std::move(e);
+    b->line = b->lhs->line;
     b->rhs = parse_unary();
     e = std::move(b);
   }
@@ -710,9 +761,11 @@ ExprPtr
 Parser::parse_unary()
 {
   if (check(TokKind::Minus)) {
+    const int line = peek().line;
     next();
     auto u = std::make_unique<Expr>();
     u->kind = Expr::Kind::Unary;
+    u->line = line;
     u->text = "-";
     u->rhs = parse_unary();
     return u;
@@ -730,12 +783,14 @@ Parser::parse_postfix()
       auto d = std::make_unique<Expr>();
       d->kind = Expr::Kind::Dot;
       d->lhs = std::move(e);
+      d->line = d->lhs->line;
       d->text = expect(TokKind::Ident, "member name").text;
       e = std::move(d);
     } else if (check(TokKind::LParen)) {
       auto c = std::make_unique<Expr>();
       c->kind = Expr::Kind::Call;
       c->lhs = std::move(e);
+      c->line = c->lhs->line;
       c->args = parse_arg_list();
       e = std::move(c);
     } else if (check(TokKind::LBracket)) {
@@ -743,6 +798,7 @@ Parser::parse_postfix()
       auto ix = std::make_unique<Expr>();
       ix->kind = Expr::Kind::Index;
       ix->lhs = std::move(e);
+      ix->line = ix->lhs->line;
       ix->rhs = parse_expr();
       expect(TokKind::RBracket, "]");
       e = std::move(ix);
@@ -756,10 +812,12 @@ Parser::parse_postfix()
 ExprPtr
 Parser::parse_primary()
 {
+  const int line = peek().line;
   if (check(TokKind::KwFn)) {
     next();
     auto e = std::make_unique<Expr>();
     e->kind = Expr::Kind::Lambda;
+    e->line = line;
     // Optional params; otherwise expression/block body (e.g. `fn println("hi")`).
     if (check(TokKind::LParen)) {
       next();
@@ -778,18 +836,21 @@ Parser::parse_primary()
   if (check(TokKind::Ident)) {
     auto e = std::make_unique<Expr>();
     e->kind = Expr::Kind::Ident;
+    e->line = line;
     e->text = next().text;
     return e;
   }
   if (check(TokKind::String)) {
     auto e = std::make_unique<Expr>();
     e->kind = Expr::Kind::String;
+    e->line = line;
     e->text = next().text;
     return e;
   }
   if (check(TokKind::Number)) {
     auto e = std::make_unique<Expr>();
     e->kind = Expr::Kind::Number;
+    e->line = line;
     e->text = next().text;
     return e;
   }
@@ -803,6 +864,7 @@ Parser::parse_primary()
     next();
     auto e = std::make_unique<Expr>();
     e->kind = Expr::Kind::ArrayLit;
+    e->line = line;
     if (!check(TokKind::RBracket)) {
       e->args.push_back(parse_expr());
       while (check(TokKind::Comma)) {

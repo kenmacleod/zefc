@@ -16,6 +16,7 @@ struct Field {
   bool accessible = false;
   bool is_static = false;
   ExprPtr init;
+  int line = 1;
 };
 
 struct ClassDecl;
@@ -26,6 +27,7 @@ struct BlockItem {
   ExprPtr expr;         // Expr stmt, or VarDecl initializer (may be null)
   std::string var_name; // VarDecl
   std::unique_ptr<ClassDecl> nested_class; // Kind::Class
+  int line = 1;
 
   BlockItem();
   ~BlockItem();
@@ -40,6 +42,7 @@ struct Method {
   std::vector<std::string> params;
   std::vector<BlockItem> body; // may be empty
   bool is_static = false;
+  int line = 1;
 };
 
 struct ClassDecl {
@@ -54,6 +57,7 @@ struct ClassDecl {
     std::unique_ptr<ClassDecl> decl;
   };
   std::vector<Nested> nested;
+  int line = 1;
 
   ClassDecl();
   ~ClassDecl();
@@ -90,12 +94,14 @@ struct Expr {
   std::vector<std::string> params; // Lambda
   std::vector<BlockItem> body;      // Lambda / While / If-then
   std::vector<BlockItem> else_body; // If-else
+  int line = 1;
 };
 
 struct FuncDecl {
   std::string name;
   std::vector<std::string> params;
   std::vector<BlockItem> body;
+  int line = 1;
 };
 
 struct PackageDecl {
@@ -106,6 +112,7 @@ struct PackageDecl {
   std::vector<BlockItem> ctor_body; // package constructor `fn { ... }`
   bool has_ctor = false;
   std::vector<std::unique_ptr<PackageDecl>> packages;
+  int line = 1;
 
   PackageDecl();
   ~PackageDecl();
@@ -123,6 +130,7 @@ struct Stmt {
   ExprPtr expr;
   std::string var_name;                 // VarDecl
   std::vector<std::string> import_path; // Import: foo or foo.bar.baz
+  int line = 1;
 };
 
 struct Program {
