@@ -40,6 +40,7 @@ struct Token {
   std::string text;
   int line = 1;
   int col = 1;
+  bool after_newline = false; // true if whitespace before this token included a newline
 };
 
 class Lexer {
@@ -61,6 +62,8 @@ private:
   char get();
   void skip_ws_and_comments();
   Token lex_one();
+
+  bool pending_newline_ = false;
 };
 
 } // namespace compiler

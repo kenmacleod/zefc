@@ -6,7 +6,7 @@ Transpiles `.zef` → C++ that uses the shared runtime dispatch ABI (`ZEFC_SEND*
 
 ## Status
 
-Milestones so far: `hello`, `test3`, `accessors`, `test30`, `super`, `test4`, `test6`, `test24`/`test25`, `test4b`/`test25b`, `hex`, `precedence`, `super2`.
+Milestones so far: through `test20`/`test5` (chained method sends, bare `my`, newline ASI before `+/-`), plus `hex`, `precedence`, `super2`, closure variants.
 
 ```bash
 ninja -C build compiler/zefc

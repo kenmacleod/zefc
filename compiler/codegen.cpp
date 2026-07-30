@@ -447,6 +447,34 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
     return;
   }
   case Expr::Kind::Call: {
+    // obj.method(args) — including nested receivers like a.b(1).c(2)
+    if (e.lhs && e.lhs->kind == Expr::Kind::Dot) {
+      std::vector<std::string> arg_tmps;
+      for (size_t i = 0; i < e.args.size(); ++i) {
+        arg_tmps.push_back(ctx.fresh("t"));
+        ctx.out << "  id " << arg_tmps.back() << ";\n";
+        emit_expr(ctx, *e.args[i], arg_tmps.back());
+      }
+      if (e.lhs->lhs && e.lhs->lhs->kind == Expr::Kind::Ident && e.lhs->lhs->text == "super") {
+        if (!ctx.current_class || ctx.current_class->decl->parent.empty()) {
+          throw std::runtime_error("super.method outside subclass");
+        }
+        const std::string& parent = ctx.current_class->decl->parent;
+        const std::string mangled = mangle_method(e.lhs->text, e.args.size());
+        ctx.out << "  " << dst << " = " << parent << "__" << mangled << "(self, "
+                << sel_expr(mangled);
+        for (const std::string& a : arg_tmps) {
+          ctx.out << ", " << a;
+        }
+        ctx.out << ");\n";
+        return;
+      }
+      const std::string recv = ctx.fresh("t");
+      ctx.out << "  id " << recv << ";\n";
+      emit_expr(ctx, *e.lhs->lhs, recv);
+      emit_send(ctx, recv, mangle_method(e.lhs->text, e.args.size()), arg_tmps, dst);
+      return;
+    }
     std::vector<std::string> arg_tmps;
     for (size_t i = 0; i < e.args.size(); ++i) {
       arg_tmps.push_back(ctx.fresh("t"));
@@ -522,34 +550,6 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
 void
 emit_expr_top(Ctx& ctx, const Expr& e, const std::string& dst)
 {
-  if (e.kind == Expr::Kind::Call && e.lhs && e.lhs->kind == Expr::Kind::Dot) {
-    std::vector<std::string> arg_tmps;
-    for (size_t i = 0; i < e.args.size(); ++i) {
-      arg_tmps.push_back(ctx.fresh("t"));
-      ctx.out << "  id " << arg_tmps.back() << ";\n";
-      emit_expr(ctx, *e.args[i], arg_tmps.back());
-    }
-    // super.method(args) → direct parent call
-    if (e.lhs->lhs && e.lhs->lhs->kind == Expr::Kind::Ident && e.lhs->lhs->text == "super") {
-      if (!ctx.current_class || ctx.current_class->decl->parent.empty()) {
-        throw std::runtime_error("super.method outside subclass");
-      }
-      const std::string& parent = ctx.current_class->decl->parent;
-      const std::string mangled = mangle_method(e.lhs->text, e.args.size());
-      ctx.out << "  " << dst << " = " << parent << "__" << mangled << "(self, "
-              << sel_expr(mangled);
-      for (const std::string& a : arg_tmps) {
-        ctx.out << ", " << a;
-      }
-      ctx.out << ");\n";
-      return;
-    }
-    const std::string recv = ctx.fresh("t");
-    ctx.out << "  id " << recv << ";\n";
-    emit_expr(ctx, *e.lhs->lhs, recv);
-    emit_send(ctx, recv, mangle_method(e.lhs->text, e.args.size()), arg_tmps, dst);
-    return;
-  }
   emit_expr(ctx, e, dst);
 }
 
@@ -991,13 +991,17 @@ codegen_cpp(const Program& program, const std::string& source_path)
     }
     ctx.env_params.clear();
     for (const Stmt& s : program.stmts) {
-      if (s.kind == Stmt::Kind::VarDecl) {
-        ctx.out << "  id " << s.var_name << ";\n";
+    if (s.kind == Stmt::Kind::VarDecl) {
+      ctx.out << "  id " << s.var_name;
+      if (s.expr) {
+        ctx.out << ";\n";
         ctx.current_class = nullptr;
-        // Lambdas may capture earlier top-level `my` bindings.
         emit_expr_top(ctx, *s.expr, s.var_name);
-        ctx.env_params.push_back(s.var_name);
-      } else if (s.kind == Stmt::Kind::Expr) {
+      } else {
+        ctx.out << " = null_id();\n";
+      }
+      ctx.env_params.push_back(s.var_name);
+    } else if (s.kind == Stmt::Kind::Expr) {
         ctx.current_class = nullptr;
         // Bare function name → call
         if (s.expr->kind == Expr::Kind::Ident && ctx.functions.count(s.expr->text)) {

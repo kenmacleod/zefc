@@ -74,14 +74,16 @@ Parser::parse_stmt()
     s.func_decl = parse_func();
     return s;
   }
-  // Top-level: my name = expr
+  // Top-level: my name [= expr]
   if (check(TokKind::KwMy)) {
     next();
     Stmt s;
     s.kind = Stmt::Kind::VarDecl;
     s.var_name = expect(TokKind::Ident, "variable name").text;
-    expect(TokKind::Eq, "=");
-    s.expr = parse_expr();
+    if (check(TokKind::Eq)) {
+      next();
+      s.expr = parse_expr();
+    }
     return s;
   }
   Stmt s;
@@ -251,7 +253,14 @@ ExprPtr
 Parser::parse_add()
 {
   ExprPtr e = parse_mul();
-  while (check(TokKind::Plus) || check(TokKind::Minus)) {
+  for (;;) {
+    // Newline before +/- starts a new statement (so `x = 42\n- 666` is two stmts).
+    if (peek().after_newline && (check(TokKind::Plus) || check(TokKind::Minus))) {
+      break;
+    }
+    if (!(check(TokKind::Plus) || check(TokKind::Minus))) {
+      break;
+    }
     const bool is_minus = check(TokKind::Minus);
     next();
     auto b = std::make_unique<Expr>();

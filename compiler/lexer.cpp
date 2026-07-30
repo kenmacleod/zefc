@@ -38,6 +38,9 @@ Lexer::skip_ws_and_comments()
 {
   for (;;) {
     while (std::isspace(static_cast<unsigned char>(ch()))) {
+      if (ch() == '\n') {
+        pending_newline_ = true;
+      }
       get();
     }
     if (ch() == '#') {
@@ -57,6 +60,8 @@ Lexer::lex_one()
   Token t;
   t.line = line_;
   t.col = col_;
+  t.after_newline = pending_newline_;
+  pending_newline_ = false;
   const char c = ch();
   if (c == '\0') {
     t.kind = TokKind::Eof;
