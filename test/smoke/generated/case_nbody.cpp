@@ -11,6 +11,7 @@
 #include "zefc/io.hpp"
 #include "zefc/known_selectors.hpp"
 #include "zefc/runtime.hpp"
+#include "bench_phase.hpp"
 #include "smoke_cases.hpp"
 
 #include <cstddef>
@@ -332,7 +333,10 @@ smoke_nbody()
   (void)Array__push(bodies, Saturn__new());
   (void)Array__push(bodies, Uranus__new());
   (void)Array__push(bodies, Neptune__new());
+  // Selectors / vtables settled; seal so flat dispatch drops live-object tracking.
+  zefc_vtables_seal();
 
+  BenchPhase phase("nbody");
   offsetMomentum(bodies);
   println(energy(bodies));
   id dt = Double__from_f64(0.01);

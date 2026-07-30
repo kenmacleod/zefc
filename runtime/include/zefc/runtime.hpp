@@ -95,6 +95,13 @@ void vtable_register(VTable* vt);
 void vtable_set(VTable* vt, int selector, zefc_method method);
 void vtables_ensure_capacity(int min_capacity);
 
+// Closed-world seal: after the last package load / last new selector, call this.
+// Further new selector_intern / vtable grow aborts. Flat: clear live_objects and
+// stop tracking instances — set_isa is only isa_ = vt->slots. Idempotent.
+// Future: perform seal at build/link time so processes start already sealed.
+void zefc_vtables_seal();
+bool zefc_vtables_sealed();
+
 template<typename Fn>
 void vtable_set(VTable* vt, int selector, Fn method)
 {
@@ -112,11 +119,6 @@ zefc_set_isa(T* obj, VTable* vt)
 {
   zefc_set_isa(as_id(obj), vt);
 }
-
-#if ZEFC_OBJECT_DISPATCH == ZEFC_OD_FLAT
-// Live objects whose isa_ must be rewritten when vt->slots relocates.
-void zefc_object_register(id obj, VTable* vt);
-#endif
 
 void package_register(const char* name);
 

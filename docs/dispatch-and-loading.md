@@ -28,30 +28,36 @@ This document is the contract for ZefC’s Orchard-style dispatch under dynamic 
 |-------|----------|--------|
 | `ic` (default) | guard `isa_` + cached callee | Zef-style method IC |
 | `slots` | `isa_->slots[sel]` | `VTable*` handle (no IC) |
-| `flat` | `isa_[sel]` | Plan A: `IsaPtr = zefc_method*`; grow rewrites live `isa_` |
+| `flat` | `isa_[sel]` | Plan A: `IsaPtr = zefc_method*`; grow rewrites live `isa_` until `zefc_vtables_seal()` |
 | `site` | sticky `CallSite.callee` | Plan B: fill on first use (optional `call_site_bind` at load); **no isa_ guard** — wrong under polymorphism (e.g. richards). Prefer `ic`/`slots`/`flat` for full smoke |
 
 ### ScriptBench wall times (matched `-O2`)
 
 Machine: WSL2 x86_64, 2026-07-30. All builds `debugoptimized` (`optimization=2`). Fil-C++ 0.678; ZefC g++ = system g++. Five warm runs; approximate medians. Field IC on in all ZefC columns. Zef has no g++ build.
 
-**Fil-C** (`-Dobject_dispatch=…`):
+**What is timed:** ScriptBench smoke cases (`nbody` / `splay` / `richards`) print an explicit **AFTER STARTUP** phase on **stderr** (`zefc-bench: …`) starting immediately after `zefc_vtables_seal()`. That excludes process start, package init, selector intern, and seal itself. It still includes bench setup that is part of the ScriptBench script (e.g. `SplaySetup`). Prefer those lines over whole-process `/usr/bin/time` when comparing dispatch modes. Stdout goldens are unchanged.
+
+**Future optimization:** seal (closed-world freeze) can move to **build/link time** so the process starts already sealed; today’s runtime `zefc_vtables_seal()` after last load is the stand-in. Do not treat runtime seal cost as inherent to flat/slots.
+
+**Fil-C** (`-Dobject_dispatch=…`; tables below are older **full-process** walls — re-measure with `zefc-bench:` AFTER STARTUP lines for A/B):
 
 | Bench | ic | slots | flat | site | Zef |
 |-------|----|-------|------|------|-----|
-| nbody | ~0.05s | ~0.06s | ~0.08s | ~0.10s | ~0.21s |
-| richards | ~0.04s | ~0.04s | ~0.04s | *(crash — poly)* | ~0.19s |
-| splay | ~1.4s | ~1.4s | ~3.9s | ~1.4s | ~2.6s |
+| nbody | ~0.05s | ~0.06s | ~0.06s | ~0.10s | ~0.21s |
+| richards | ~0.04s | ~0.04s | ~0.03s | *(crash — poly)* | ~0.19s |
+| splay | ~1.4s | ~0.94s | ~1.0s | ~1.4s | ~2.6s |
 
-**g++** (same ZefC code; unsafe / no Fil-C checks):
+**g++** (same ZefC code; unsafe / no Fil-C checks; same caveat — full-process):
 
 | Bench | ic | slots | flat | site |
 |-------|----|-------|------|------|
 | nbody | ~0.00s | ~0.01s | ~0.01s | ~0.01s |
 | richards | ~0.00s | ~0.00s | ~0.00s | *(crash — poly)* |
-| splay | ~0.25s | ~0.27s | ~0.67s | ~0.22s |
+| splay | ~0.25s | ~0.16s | ~0.16s | ~0.22s |
 
-**Takeaways:** `ic` vs `slots` vs `site` (where correct) stay in the noise on these benches. `flat` is similar on nbody/richards but **slower on splay** (live-object map for instance fix-up under many allocs). `site` is invalid under polymorphism (`richards`). Fil-C vs g++ remains ~5–10× on the same dispatch model. ZefC Fil-C vs Zef is still mostly AOT vs interpret (except flat splay, where registry cost dominates).
+**Takeaways:** `ic` vs `slots` vs `site` (where correct) stay in the noise on these benches. Unsealed `flat` paid a live-object map on every `zefc_set_isa` (splay ~3.9s Fil-C / ~0.67s g++). After `zefc_vtables_seal()`, flat init is just `isa_ = vt->slots` (class `slots→VTable*` map is create/grow only). Expect flat ≈ slots on post-seal walls; splay is field-IC / alloc dominated so the one-load send win stays noise. `site` is invalid under polymorphism (`richards`). Fil-C vs g++ remains ~5–10× on the same dispatch model. ZefC Fil-C vs Zef is still mostly AOT vs interpret.
+
+**Seal:** `zefc_vtables_seal()` marks the process closed-world: no new selectors / vtable grows; flat drops `live_objects` and never re-registers instances. Call after the last package load / last selector intern — analogous to Obj-C after dyld settles. ScriptBench seals once setup finishes, then reports AFTER STARTUP time.
 
 ScriptBench smoke (`nbody`, `splay`, `richards`) exercises this stack; see [test/smoke/README.md](../test/smoke/README.md).
 
@@ -168,4 +174,4 @@ Instruction-count verification under Fil-C++ is a follow-on check, not a gate fo
 - **First milestone module load:** explicit `module_register` / `module_load` without a separate `.so`.
 - **Closed-world skip:** not implemented; sites still go through the patch path.
 
-Next toward the ideal hot path: reloc/text-imm patch for selectors **not** in the closed-world set; non-moving slot arena for `flat` (fewer instance fix-ups); load-time `call_site_bind` coverage for monomorphic `site` sends.
+Next toward the ideal hot path: reloc/text-imm patch for selectors **not** in the closed-world set; **build-/link-time seal** (today’s runtime `zefc_vtables_seal()` is the stand-in; ScriptBench already times AFTER STARTUP); non-moving slot arena for unsealed `flat` grow; load-time `call_site_bind` coverage for monomorphic `site` sends.

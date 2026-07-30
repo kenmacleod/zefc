@@ -44,9 +44,9 @@ C++ has objects / closures / vtables / `send` you can map to the Zef (transpile-
 | `test26`, `test26b`, `test26c`, `test27` | HOF `times`/`foo` invoking closure objects via `call` |
 | `test30` | Instance identity `==` via `eq` send |
 | `patch1` | **ABI acceptance:** load A then B; site cells; vtable growth |
-| `nbody` | ScriptBench n-body: Body fields via **typed field IC** (guard + member); Double imm + `ZEFC_SEL_*` |
-| `splay` | ScriptBench splay: tree methods via sends; node/payload fields via **typed field IC**; closure traverse |
-| `richards` | ScriptBench Richards: scheduler/TCB/tasks via sends + typed field IC; Array `PUT_i` / sized ctor |
+| `nbody` | ScriptBench n-body: Body fields via **typed field IC** (guard + member); Double imm + `ZEFC_SEL_*`; seals then **AFTER STARTUP** timer on stderr |
+| `splay` | ScriptBench splay: tree methods via sends; node/payload fields via **typed field IC**; closure traverse; seals then AFTER STARTUP timer |
+| `richards` | ScriptBench Richards: scheduler/TCB/tasks via sends + typed field IC; Array `PUT_i` / sized ctor; seals then AFTER STARTUP timer |
 
 ### Behavioral / sequencing
 
@@ -85,12 +85,15 @@ Calls `zefc_error("…")` with Zef’s message text; no real rejection logic.
 | `zef/*.zef` | Reference inputs |
 | `generated/loadable_modules.cpp` | Hand-registered modules for `module_load` |
 | `generated/case_*.cpp` | Hand-maintained stand-ins (see Fidelity) |
+| `bench_phase.hpp` | ScriptBench AFTER STARTUP phase timer (`zefc-bench:` on stderr) |
 | `runtime_init.cpp` | String + int (+ array) runtime init |
 | `main.cpp` | `zefc-smoke <case>` driver |
-| `check_stdout.py` / `check_error.py` | Golden checks |
+| `check_stdout.py` / `check_error.py` | Golden checks (`zefc-bench:` stderr allowed) |
 | `expected/*` | Expected stdout / stderr |
 
 Shared dispatch/IO: `../../runtime/`.
+
+**ScriptBench timing:** `nbody` / `splay` / `richards` print `zefc-bench: … AFTER STARTUP` on stderr after `zefc_vtables_seal()`. That is the dispatch A/B number (excludes load/init). Moving seal to build time is a documented future optimization — see [docs/dispatch-and-loading.md](../../docs/dispatch-and-loading.md).
 
 ## Build and run
 

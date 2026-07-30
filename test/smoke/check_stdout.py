@@ -4,6 +4,16 @@ import subprocess
 import sys
 
 
+def unexpected_stderr(text: str) -> str:
+    """ScriptBench may print zefc-bench phase timers to stderr; other stderr is a fail."""
+    bad = []
+    for line in text.splitlines(keepends=True):
+        if line.startswith("zefc-bench:"):
+            continue
+        bad.append(line)
+    return "".join(bad)
+
+
 def main() -> int:
     exe = sys.argv[1]
     case = sys.argv[2]
@@ -19,8 +29,9 @@ def main() -> int:
         sys.stderr.write("expected (%r):\n%s" % (golden, golden))
         sys.stderr.write("got (%r):\n%s" % (proc.stdout, proc.stdout))
         return 1
-    if proc.stderr:
-        sys.stderr.write("expected empty stderr, got:\n%s" % proc.stderr)
+    bad = unexpected_stderr(proc.stderr or "")
+    if bad:
+        sys.stderr.write("expected empty stderr (aside from zefc-bench:), got:\n%s" % bad)
         return 1
     return 0
 

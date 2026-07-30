@@ -10,6 +10,7 @@
 #include "zefc/known_selectors.hpp"
 #include "zefc/runtime.hpp"
 #include "zefc/string_api.hpp"
+#include "bench_phase.hpp"
 #include "smoke_cases.hpp"
 
 #include <cstddef>
@@ -570,6 +571,8 @@ void
 smoke_splay()
 {
   ensure_runtime();
+  zefc_vtables_seal();
+  BenchPhase phase("splay");
   SplaySetup();
   for (int i = 0; i < 32; ++i) {
     SplayRun();
