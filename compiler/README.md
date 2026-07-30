@@ -6,7 +6,7 @@ Transpiles `.zef` → C++ that uses the shared runtime dispatch ABI (`ZEFC_SEND*
 
 ## Status
 
-First milestones: `hello.zef`, `test3.zef`, and `accessors.zef` (`my`/`readable`/`accessible`/`static`, field defaults, blocks, multi-arg, dotted get/set).
+Milestones so far: `hello`, `test3`, `accessors`, `test30` (`==`), `super` (inheritance, `super.method`, top-level `fn`).
 
 ```bash
 ninja -C build compiler/zefc

@@ -279,6 +279,30 @@ Parser::parse_postfix()
 ExprPtr
 Parser::parse_primary()
 {
+  if (check(TokKind::KwFn)) {
+    next();
+    auto e = std::make_unique<Expr>();
+    e->kind = Expr::Kind::Lambda;
+    // fn name? — nested named not supported; require (params) or bare body
+    if (check(TokKind::Ident)) {
+      // treat as error for now or skip name
+      throw std::runtime_error("nested named fn not supported yet at line " +
+                               std::to_string(peek().line));
+    }
+    if (check(TokKind::LParen)) {
+      next();
+      if (!check(TokKind::RParen)) {
+        e->params.push_back(expect(TokKind::Ident, "parameter").text);
+        while (check(TokKind::Comma)) {
+          next();
+          e->params.push_back(expect(TokKind::Ident, "parameter").text);
+        }
+      }
+      expect(TokKind::RParen, ")");
+    }
+    e->body = parse_method_body();
+    return e;
+  }
   if (check(TokKind::Ident)) {
     auto e = std::make_unique<Expr>();
     e->kind = Expr::Kind::Ident;

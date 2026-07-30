@@ -19,12 +19,15 @@ struct Expr {
     Dot,
     Binary,
     Assign,
+    Lambda,
   } kind;
 
   std::string text;
   ExprPtr lhs;
   ExprPtr rhs;
   std::vector<ExprPtr> args;
+  std::vector<std::string> params; // Lambda
+  std::vector<ExprPtr> body;       // Lambda
 };
 
 struct Field {

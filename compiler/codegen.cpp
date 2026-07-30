@@ -78,10 +78,13 @@ struct FuncInfo {
 
 struct Ctx {
   std::ostringstream out;
+  std::ostringstream prelude; // closure types/methods at namespace scope
   std::unordered_map<std::string, ClassInfo> classes;
   std::unordered_map<std::string, FuncInfo> functions;
   const ClassInfo* current_class = nullptr;
+  std::vector<std::string> env_params;
   int tmp = 0;
+  int closure_id = 0;
 
   std::string fresh(const char* prefix)
   {
@@ -91,6 +94,8 @@ struct Ctx {
 
 void emit_expr(Ctx& ctx, const Expr& e, const std::string& dst);
 void emit_expr_top(Ctx& ctx, const Expr& e, const std::string& dst);
+void emit_body(Ctx& ctx, const std::vector<ExprPtr>& body, const std::string& result_dst,
+               bool ctor_return_self);
 
 bool
 is_field(const Ctx& ctx, const std::string& name)
@@ -129,6 +134,152 @@ emit_send(Ctx& ctx, const std::string& recv, const std::string& mangled,
 }
 
 void
+collect_free(const Expr& e, const std::unordered_set<std::string>& locals,
+             const std::vector<std::string>& env, std::vector<std::string>& captures)
+{
+  auto add_cap = [&](const std::string& name) {
+    if (locals.count(name)) {
+      return;
+    }
+    bool in_env = false;
+    for (const std::string& p : env) {
+      if (p == name) {
+        in_env = true;
+        break;
+      }
+    }
+    if (!in_env) {
+      return;
+    }
+    for (const std::string& c : captures) {
+      if (c == name) {
+        return;
+      }
+    }
+    captures.push_back(name);
+  };
+
+  switch (e.kind) {
+  case Expr::Kind::Ident:
+    add_cap(e.text);
+    break;
+  case Expr::Kind::Dot:
+    if (e.lhs) {
+      collect_free(*e.lhs, locals, env, captures);
+    }
+    break;
+  case Expr::Kind::Binary:
+  case Expr::Kind::Assign:
+    if (e.lhs) {
+      collect_free(*e.lhs, locals, env, captures);
+    }
+    if (e.rhs) {
+      collect_free(*e.rhs, locals, env, captures);
+    }
+    break;
+  case Expr::Kind::Call:
+    if (e.lhs) {
+      collect_free(*e.lhs, locals, env, captures);
+    }
+    for (const auto& a : e.args) {
+      collect_free(*a, locals, env, captures);
+    }
+    break;
+  case Expr::Kind::Lambda: {
+    std::unordered_set<std::string> inner = locals;
+    for (const std::string& p : e.params) {
+      inner.insert(p);
+    }
+    for (const auto& s : e.body) {
+      collect_free(*s, inner, env, captures);
+    }
+    break;
+  }
+  default:
+    break;
+  }
+}
+
+void
+emit_lambda(Ctx& ctx, const Expr& e, const std::string& dst)
+{
+  std::unordered_set<std::string> locals;
+  for (const std::string& p : e.params) {
+    locals.insert(p);
+  }
+  std::vector<std::string> captures;
+  for (const auto& s : e.body) {
+    collect_free(*s, locals, ctx.env_params, captures);
+  }
+
+  const int id = ctx.closure_id++;
+  const std::string cname = "Closure" + std::to_string(id);
+
+  ctx.prelude << "struct " << cname << "_ {\n  IsaPtr isa_;\n";
+  for (const std::string& cap : captures) {
+    ctx.prelude << "  id " << cap << ";\n";
+  }
+  ctx.prelude << "};\n";
+  ctx.prelude << "static VTable* " << cname << "_vtable = nullptr;\n";
+
+  // Build call method into a temporary Ctx sharing class env for body.
+  std::ostringstream body_out;
+  Ctx body_ctx;
+  body_ctx.classes = ctx.classes;
+  body_ctx.functions = ctx.functions;
+  body_ctx.tmp = ctx.tmp;
+  body_ctx.closure_id = ctx.closure_id;
+  ClassDecl fake;
+  fake.name = cname;
+  for (const std::string& cap : captures) {
+    Field f;
+    f.name = cap;
+    fake.fields.push_back(std::move(f));
+  }
+  ClassInfo fake_info;
+  fake_info.decl = &fake;
+  for (const std::string& cap : captures) {
+    fake_info.field_names.insert(cap);
+  }
+  for (const std::string& p : e.params) {
+    fake_info.param_names.insert(p);
+  }
+  body_ctx.current_class = &fake_info;
+  for (const std::string& p : e.params) {
+    body_ctx.env_params.push_back(p);
+  }
+  body_ctx.out << "static id\n" << cname << "__call_o(id self, int selector";
+  for (size_t i = 0; i < e.params.size(); ++i) {
+    body_ctx.out << ", id " << e.params[i];
+  }
+  body_ctx.out << ")\n{\n  (void)selector;\n";
+  const std::string tmp = body_ctx.fresh("t");
+  body_ctx.out << "  id " << tmp << ";\n";
+  emit_body(body_ctx, e.body, tmp, false);
+  body_ctx.out << "}\n\n";
+  ctx.tmp = body_ctx.tmp;
+  ctx.closure_id = body_ctx.closure_id;
+  ctx.prelude << body_ctx.out.str();
+  ctx.prelude << body_ctx.prelude.str();
+
+  ctx.out << "  if (!" << cname << "_vtable) {\n";
+  ctx.out << "    " << cname << "_vtable = vtable_create();\n";
+  ctx.out << "    vtable_set(" << cname << "_vtable, selector_intern(\"call_o\"), " << cname
+          << "__call_o);\n";
+  ctx.out << "    vtable_set(" << cname << "_vtable, selector_intern(\"add_o\"), " << cname
+          << "__call_o);\n";
+  ctx.out << "  }\n";
+  ctx.out << "  {\n";
+  ctx.out << "    " << cname << "_* _c = alloc<" << cname << "_>();\n";
+  ctx.out << "    zefc_set_isa(_c, " << cname << "_vtable);\n";
+  for (const std::string& cap : captures) {
+    ctx.out << "    _c->" << cap << " = " << cap << ";\n";
+  }
+  ctx.out << "    " << dst << " = as_id(_c);\n";
+  ctx.out << "  }\n";
+}
+
+void
 emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
 {
   switch (e.kind) {
@@ -149,6 +300,9 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
     }
     return;
   }
+  case Expr::Kind::Lambda:
+    emit_lambda(ctx, e, dst);
+    return;
   case Expr::Kind::String:
     ctx.out << "  " << dst << " = String__from_utf8(\"" << mangle_escape(e.text) << "\");\n";
     return;
@@ -229,33 +383,48 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
     return;
   }
   case Expr::Kind::Call: {
-    if (!e.lhs || e.lhs->kind != Expr::Kind::Ident) {
-      throw std::runtime_error("only simple calls supported in this milestone");
-    }
-    const std::string& callee = e.lhs->text;
     std::vector<std::string> arg_tmps;
     for (size_t i = 0; i < e.args.size(); ++i) {
       arg_tmps.push_back(ctx.fresh("t"));
       ctx.out << "  id " << arg_tmps.back() << ";\n";
       emit_expr(ctx, *e.args[i], arg_tmps.back());
     }
-    if (callee == "println") {
-      if (arg_tmps.size() != 1) {
-        throw std::runtime_error("println expects 1 argument");
+    if (e.lhs && e.lhs->kind == Expr::Kind::Ident) {
+      const std::string& callee = e.lhs->text;
+      if (callee == "println") {
+        if (arg_tmps.size() != 1) {
+          throw std::runtime_error("println expects 1 argument");
+        }
+        ctx.out << "  println(" << arg_tmps[0] << ");\n";
+        ctx.out << "  " << dst << " = null_id();\n";
+        return;
       }
-      ctx.out << "  println(" << arg_tmps[0] << ");\n";
-      ctx.out << "  " << dst << " = null_id();\n";
-      return;
-    }
-    if (ctx.classes.count(callee)) {
-      ctx.out << "  " << dst << " = " << callee << "__new(null_id(), 0";
-      for (const std::string& a : arg_tmps) {
-        ctx.out << ", " << a;
+      if (ctx.classes.count(callee)) {
+        ctx.out << "  " << dst << " = " << callee << "__new(null_id(), 0";
+        for (const std::string& a : arg_tmps) {
+          ctx.out << ", " << a;
+        }
+        ctx.out << ");\n";
+        return;
       }
-      ctx.out << ");\n";
-      return;
+      if (ctx.functions.count(callee)) {
+        ctx.out << "  " << dst << " = fn_" << callee << "(";
+        for (size_t i = 0; i < arg_tmps.size(); ++i) {
+          if (i) {
+            ctx.out << ", ";
+          }
+          ctx.out << arg_tmps[i];
+        }
+        ctx.out << ");\n";
+        return;
+      }
     }
-    throw std::runtime_error("unknown call target: " + callee);
+    // Callable apply: recv(args) → call_o / add_o
+    const std::string recv = ctx.fresh("t");
+    ctx.out << "  id " << recv << ";\n";
+    emit_expr(ctx, *e.lhs, recv);
+    emit_send(ctx, recv, "call_o", arg_tmps, dst);
+    return;
   }
   }
   throw std::runtime_error("unhandled expression kind");
@@ -643,25 +812,42 @@ codegen_cpp(const Program& program, const std::string& source_path)
     }
   }
 
-  for (const Stmt& s : program.stmts) {
-    if (s.kind != Stmt::Kind::Func) {
-      continue;
-    }
-    const FuncDecl& f = s.func_decl;
-    ctx.out << "static id\nfn_" << f.name << "(";
-    for (size_t i = 0; i < f.params.size(); ++i) {
-      if (i) {
-        ctx.out << ", ";
+  // Emit top-level functions into a buffer so closure prelude can be placed first.
+  std::ostringstream funcs_out;
+  {
+    std::ostringstream saved;
+    saved << ctx.out.str();
+    ctx.out.str("");
+    ctx.out.clear();
+    for (const Stmt& s : program.stmts) {
+      if (s.kind != Stmt::Kind::Func) {
+        continue;
       }
-      ctx.out << "id " << f.params[i];
+      const FuncDecl& f = s.func_decl;
+      ctx.out << "static id\nfn_" << f.name << "(";
+      for (size_t i = 0; i < f.params.size(); ++i) {
+        if (i) {
+          ctx.out << ", ";
+        }
+        ctx.out << "id " << f.params[i];
+      }
+      ctx.out << ")\n{\n";
+      ctx.current_class = nullptr;
+      ctx.env_params = f.params;
+      const std::string tmp = ctx.fresh("t");
+      ctx.out << "  id " << tmp << ";\n";
+      emit_body(ctx, f.body, tmp, false);
+      ctx.env_params.clear();
+      ctx.out << "}\n\n";
     }
-    ctx.out << ")\n{\n";
-    ctx.current_class = nullptr;
-    const std::string tmp = ctx.fresh("t");
-    ctx.out << "  id " << tmp << ";\n";
-    emit_body(ctx, f.body, tmp, false);
-    ctx.out << "}\n\n";
+    funcs_out << ctx.out.str();
+    ctx.out.str("");
+    ctx.out.clear();
+    ctx.out << saved.str();
   }
+
+  ctx.out << ctx.prelude.str();
+  ctx.out << funcs_out.str();
 
   ctx.out << "} // namespace\n\n";
   ctx.out << "int\nmain()\n{\n";

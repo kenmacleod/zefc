@@ -109,7 +109,7 @@ test(
   suite : 'compiler',
 )
 
-foreach case_name : ['test30', 'super']
+foreach case_name : ['test30', 'super', 'test4']
   case_zef = meson.project_source_root() / 'test/smoke/zef' / (case_name + '.zef')
   case_gen = custom_target(
     case_name + '_from_zef',
