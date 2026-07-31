@@ -68,3 +68,8 @@ ZefC is a compiler that transpiles the Zef language to C++, using Orchard-C (Orc
 
     # Prints "hello world" and then a newline
     println(Foo("hello") + Foo("world"))
+
+## See also
+
+- [Dispatch and dynamic loading](dispatch-and-loading.md) — send ABI, field IC, ScriptBench notes
+- [Remaining work checklist](remaining-checklist.md) — post-golden-parity follow-ups

@@ -10,7 +10,7 @@ Zef goldens and the mini String/Int/Double/Array runtime used when linking compi
 | `generated/{cstr,int,double,array}.cpp` | Stdlib bootstrap (until folded into `runtime/`) |
 | `generated/loadable_modules.cpp` | In-process `module_register` stand-ins for `load(...)` |
 
-**Language coverage:** `meson test --suite compiler` transpiles these `.zef` files with `zefc` and checks goldens.
+**Language coverage:** `meson test --suite compiler` transpiles these `.zef` files with `zefc` and checks goldens. Post-parity follow-ups: [docs/remaining-checklist.md](../../docs/remaining-checklist.md).
 
 **Dispatch ABI** (vtable growth / `ZEFC_SITE`, not a Zef program): `meson test --suite abi` — see [test/abi/](../abi/).
 
