@@ -131,6 +131,7 @@ struct ClassInfo {
   bool has_static_call0 = false; // static fn call with 0 params
   bool synth_nested_call = false; // Foo() forwards to static nested class `call`
   bool has_instance_ctor = false; // explicit `fn (...)` / `fn { }` constructor
+  bool private_ctor = false;      // constructor is `private fn ...`
   // Enclosing type-nested class (Foo_Bar → Foo). Empty if top-level / fn-local.
   std::string enclosing_cpp;
   bool nest_is_static = false;
@@ -447,6 +448,31 @@ check_private_member_access(const Ctx& ctx, const std::string& name)
   if (private_elsewhere && !allowed_here) {
     throw std::runtime_error("no such method: " + name);
   }
+}
+
+void
+check_private_class_member(const Ctx& ctx, const ClassInfo& ci, const std::string& name)
+{
+  if (!ci.private_fields.count(name)) {
+    return;
+  }
+  if (ctx.current_class && class_cpp(*ctx.current_class) == class_cpp(ci)) {
+    return;
+  }
+  throw std::runtime_error("no such method: " + name);
+}
+
+void
+check_ctor_visible(const Ctx& ctx, const ClassInfo& ci)
+{
+  if (!ci.private_ctor) {
+    return;
+  }
+  if (ctx.current_class && class_cpp(*ctx.current_class) == class_cpp(ci)) {
+    return;
+  }
+  throw std::runtime_error(
+      "cannot instantiate class, private constructor not visible at callsite");
 }
 
 bool
@@ -1094,10 +1120,21 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
           }
         }
       }
-      if (!in_env) {
+      if (in_env) {
+        ctx.out << "  " << dst << " = " << local_sym(e.text) << ";\n";
+      } else if ((e.text == "println" || e.text == "print") && !ctx.functions.count(e.text)) {
+        // Zef: bare builtin println/print as a value is the integer 0 (test26d).
+        ctx.out << "  " << dst << " = Int__from_i64(0);\n";
+      } else if (ctx.current_class && !ctx.in_static_method && ctx.package_scope_cpp.empty() &&
+                 !ctx.current_class->param_names.count(e.text) && ctx.current_class->decl &&
+                 ctx.current_class->decl->name.compare(0, 7, "Closure") != 0 &&
+                 ctx.classes.count(class_cpp(*ctx.current_class))) {
+        // Dynamic: bare name → self.name (may be defined only on a subclass).
+        // Only for real classes in ctx.classes (not package/closure fakes).
+        emit_send(ctx, "self", mangle_method(e.text, 0), {}, dst);
+      } else {
         throw std::runtime_error("cannot resolve get (call with no arguments) named " + e.text);
       }
-      ctx.out << "  " << dst << " = " << local_sym(e.text) << ";\n";
     }
     return;
   }
@@ -1248,6 +1285,7 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
       const std::string& cls = e.lhs->text;
       const ClassInfo& ci = ctx.classes[cls];
       const std::string cpp = class_cpp(ci);
+      check_private_class_member(ctx, ci, e.text);
       ctx.out << "  ensure_" << cpp << "();\n";
       if (ci.nested_instance.count(e.text)) {
         throw std::runtime_error("no such method: " + e.text);
@@ -1256,6 +1294,9 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
         ctx.out << "  " << dst << " = " << method_sym(cpp, true, mangle_method(e.text, 0))
                 << "(as_id(&g_" << cpp << "Class), " << sel_expr(mangle_method(e.text, 0))
                 << ");\n";
+      } else if (ci.methods.count(e.text) || ci.method_names.count(e.text)) {
+        // Instance method is not a class-object member (private3e).
+        throw std::runtime_error("no such method: " + e.text);
       } else {
         ctx.out << "  " << dst << " = g_" << cpp << "Class." << e.text << ";\n";
       }
@@ -1575,7 +1616,24 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
         return;
       }
       // obj.field = rhs → setter send
-      check_private_member_access(ctx, e.lhs->text);
+      {
+        // Private accessible fields report the setter name (accessors2d).
+        bool private_elsewhere = false;
+        bool allowed_here = false;
+        for (const auto& kv : ctx.classes) {
+          if (!kv.second.private_fields.count(e.lhs->text)) {
+            continue;
+          }
+          if (ctx.current_class && class_cpp(*ctx.current_class) == class_cpp(kv.second)) {
+            allowed_here = true;
+          } else {
+            private_elsewhere = true;
+          }
+        }
+        if (private_elsewhere && !allowed_here) {
+          throw std::runtime_error("no such method: set_" + e.lhs->text);
+        }
+      }
       const std::string recv = ctx.fresh("t");
       ctx.out << "  id " << recv << ";\n";
       emit_expr(ctx, *e.lhs->lhs, recv);
@@ -1670,6 +1728,7 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
         if (ctx.classes.count(callee)) {
           const ClassInfo& ci = ctx.classes[callee];
           const std::string cpp = class_cpp(ci);
+          check_ctor_visible(ctx, ci);
           if (arg_tmps.empty() && ci.has_static_call0) {
             ctx.out << "  ensure_" << cpp << "();\n";
             const char* call_sym =
@@ -1715,6 +1774,7 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
         if (ci.decl) {
           for (const Method& m : ci.decl->methods) {
             if (m.is_static && m.name == e.lhs->text && m.params.size() == arg_tmps.size()) {
+              check_private_class_member(ctx, ci, e.lhs->text);
               ctx.out << "  ensure_" << cpp << "();\n";
               ctx.out << "  " << dst << " = "
                       << method_sym(cpp, true, mangle_method(e.lhs->text, arg_tmps.size()))
@@ -1955,6 +2015,22 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
         emit_send(ctx, "self", mangle_method(callee, arg_tmps.size()), arg_tmps, dst);
         return;
       }
+      // Bare static method with args (deltablue2: weaker(s1, s2) inside static method).
+      if (ctx.current_class && ctx.current_class->decl &&
+          !ctx.current_class->param_names.count(callee)) {
+        for (const Method& m : ctx.current_class->decl->methods) {
+          if (m.is_static && m.name == callee && m.params.size() == arg_tmps.size()) {
+            if (ctx.in_static_method) {
+              emit_send(ctx, "self", mangle_method(callee, arg_tmps.size()), arg_tmps, dst);
+            } else {
+              const std::string cpp = class_cpp(*ctx.current_class);
+              emit_send(ctx, "as_id(&g_" + cpp + "Class)",
+                        mangle_method(callee, arg_tmps.size()), arg_tmps, dst);
+            }
+            return;
+          }
+        }
+      }
       if (ctx.package_methods.count(callee)) {
         emit_send(ctx, "self", mangle_method(callee, arg_tmps.size()), arg_tmps, dst);
         return;
@@ -1988,6 +2064,7 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
       if (ctx.classes.count(callee)) {
         const ClassInfo& ci = ctx.classes[callee];
         const std::string cpp = class_cpp(ci);
+        check_ctor_visible(ctx, ci);
         // Class() with static call and no ctor args → invoke class.call (Zef staticcall).
         if (arg_tmps.empty() && ci.has_static_call0) {
           ctx.out << "  ensure_" << cpp << "();\n";
@@ -2020,11 +2097,26 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
         ctx.out << ");\n";
         return;
       }
+      // Dynamic instance method with args (may be defined only on a subclass).
+      // Do not steal nested/local class construction (`Bar()` → bound class call_o).
+      if (ctx.current_class && !ctx.in_static_method && ctx.package_scope_cpp.empty() &&
+          ctx.current_class->decl && !ctx.current_class->param_names.count(callee) &&
+          ctx.current_class->decl->name.compare(0, 7, "Closure") != 0 &&
+          ctx.classes.count(class_cpp(*ctx.current_class)) &&
+          !ctx.current_class->nested_instance.count(callee) &&
+          !ctx.current_class->nested_static.count(callee) && !ctx.classes.count(callee) &&
+          !ctx.local_classes.count(callee)) {
+        emit_send(ctx, "self", mangle_method(callee, arg_tmps.size()), arg_tmps, dst);
+        return;
+      }
     }
     // Callable apply: recv(args) → call_o / add_o
     const std::string recv = ctx.fresh("t");
     ctx.out << "  id " << recv << ";\n";
     emit_expr(ctx, *e.lhs, recv);
+    ctx.out << "  if (id_is_int(" << recv << ") || id_is_double(" << recv << ")) {\n";
+    ctx.out << "    zefc_error(\"attempt to call number\");\n";
+    ctx.out << "  }\n";
     emit_send(ctx, recv, "call_o", arg_tmps, dst);
     return;
   }
@@ -2587,6 +2679,9 @@ collect_class_decl(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name, bo
   for (const Method& m : c.methods) {
     if (m.name.empty() && !m.is_static) {
       info.has_instance_ctor = true;
+      if (m.is_private) {
+        info.private_ctor = true;
+      }
     }
     if (m.is_private && !m.name.empty()) {
       info.private_fields.insert(m.name);

@@ -1,0 +1,11 @@
+    class Foo {
+        my x
+        fn (inX) x = inX
+        fn foo 42
+    }
+    class Bar : Foo {
+        fn { }
+    }
+    my o = Bar()
+    println("still ok")
+    println(o.foo)

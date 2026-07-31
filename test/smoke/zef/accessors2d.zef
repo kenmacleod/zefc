@@ -1,0 +1,9 @@
+class Foo {
+    private accessible b = 2
+
+    fn { }
+}
+
+Foo().b = 42
+
+

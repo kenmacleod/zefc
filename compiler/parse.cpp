@@ -1036,6 +1036,11 @@ Parser::parse_postfix()
       c->args = parse_arg_list();
       e = std::move(c);
     } else if (check(TokKind::LBracket)) {
+      // Newline before `[` starts a new statement (so `my y = 2\n[x, y]` is not
+      // an index expression).
+      if (peek().after_newline) {
+        break;
+      }
       next();
       auto ix = std::make_unique<Expr>();
       ix->kind = Expr::Kind::Index;

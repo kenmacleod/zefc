@@ -1,0 +1,7 @@
+class Foo {
+    private fn { }
+    static fn create Foo()
+    fn create2 Foo()
+    fn thingy println("Hello")
+}
+Foo.create2.create.thingy

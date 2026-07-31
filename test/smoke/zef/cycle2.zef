@@ -1,0 +1,29 @@
+class Foo {
+    my f
+    fn { }
+    fn f f
+    fn set_f(value) f = value
+}
+
+fn make Foo()
+
+fn make2 {
+    my x = make
+    my y = make
+    x.f = y
+    y.f = x
+    [x, y]
+}
+
+my i = 0
+while (i < 1000000) {
+    my array = make2
+    if (array[0].f != array[1])
+        error("field not set (1)")
+    if (array[1].f != array[0])
+        error("field not set (2)")
+    i += 1
+}
+
+println("ok")
+

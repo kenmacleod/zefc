@@ -169,7 +169,8 @@ foreach case_name : ['test30', 'super', 'test4', 'test6', 'test24', 'test25',
                      'biglist', 'gc', 'test12',
                      'test6b', 'test45c', 'convert', 'private1c', 'private2d',
                      'private2e', 'test32', 'test46b',
-                     'nbody2', 'nbody-fast', 'nbody-fast2', 'richards2', 'splay2']
+                     'nbody2', 'nbody-fast', 'nbody-fast2', 'richards2', 'splay2',
+                     'cycle2']
   case_zef = meson.project_source_root() / 'test/smoke/zef' / (case_name + '.zef')
   case_gen = custom_target(
     case_name + '_from_zef',
@@ -201,7 +202,9 @@ foreach err_name : ['test10', 'test11', 'test16', 'test17', 'test18', 'test21',
                     'load2', 'load3', 'package11', 'accessors2', 'test28',
                     'private1b',
                     'nestedclass1b', 'nestedclass3', 'nestedclass3c',
-                    'nestedclass4', 'accessors2c', 'private1f', 'test12b']
+                    'nestedclass4', 'accessors2c', 'private1f', 'test12b',
+                    'private2c', 'private2f', 'private3b', 'private3e',
+                    'accessors2d', 'deltablue2b']
   test(
     'compiler ' + err_name + ' stderr',
     python3,
@@ -315,6 +318,61 @@ test(
     meson.project_source_root() / 'test/compiler/check_runtime_error.py',
     nocons_exe,
     meson.project_source_root() / 'test/smoke/expected/nocons.stderr',
+  ],
+  suite : 'compiler',
+)
+
+foreach rt_err : ['test26d']
+  rt_zef = meson.project_source_root() / 'test/smoke/zef' / (rt_err + '.zef')
+  rt_gen = custom_target(
+    rt_err + '_from_zef',
+    input : rt_zef,
+    output : rt_err + '.gen.cpp',
+    command : [zefc_exe, '@INPUT@', '-o', '@OUTPUT@'],
+  )
+  rt_exe = executable(
+    'zefc-' + rt_err,
+    [rt_gen] + stdlib_sources,
+    dependencies : [runtime_dep],
+    include_directories : compiler_exe_inc,
+    cpp_args : zefc_cpp_args,
+    install : false,
+  )
+  test(
+    'compiler ' + rt_err + ' stderr',
+    python3,
+    args : [
+      meson.project_source_root() / 'test/compiler/check_runtime_error.py',
+      rt_exe,
+      meson.project_source_root() / 'test/smoke/expected' / (rt_err + '.stderr'),
+    ],
+    suite : 'compiler',
+  )
+endforeach
+
+test44_zef = meson.project_source_root() / 'test/smoke/zef/test44.zef'
+test44_gen = custom_target(
+  'test44_from_zef',
+  input : test44_zef,
+  output : 'test44.gen.cpp',
+  command : [zefc_exe, '@INPUT@', '-o', '@OUTPUT@'],
+)
+test44_exe = executable(
+  'zefc-test44',
+  [test44_gen] + stdlib_sources,
+  dependencies : [runtime_dep],
+  include_directories : compiler_exe_inc,
+  cpp_args : zefc_cpp_args,
+  install : false,
+)
+test(
+  'compiler test44 stderr',
+  python3,
+  args : [
+    meson.project_source_root() / 'test/compiler/check_runtime_error.py',
+    test44_exe,
+    meson.project_source_root() / 'test/smoke/expected/test44.stderr',
+    meson.project_source_root() / 'test/smoke/expected/test44.stdout',
   ],
   suite : 'compiler',
 )
