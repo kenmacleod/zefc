@@ -6,6 +6,7 @@
 
 #include "zefc/array_api.hpp"
 #include "zefc/dispatch.hpp"
+#include "zefc/error.hpp"
 #include "zefc/int_api.hpp"
 #include "zefc/known_selectors.hpp"
 #include "zefc/runtime.hpp"
@@ -24,6 +25,9 @@ static VTable* Array_vtable = nullptr;
 
 static id Array__toString_o(id self, int selector, ...);
 static id Array__push_o(id self, int selector, id value);
+static id Array__pop_o(id self, int selector, ...);
+static id Array__shift_o(id self, int selector, ...);
+static id Array__unshift_o(id self, int selector, id value);
 static id Array__GET_i(id self, int selector, id index_obj);
 static id Array__PUT_i(id self, int selector, id index_obj, id value);
 static id Array__mul_PUT_i(id self, int selector, id index_obj, id factor_obj);
@@ -52,6 +56,41 @@ Array__push_o(id self, int selector, id value)
   (void)selector;
   body<Array_>(self)->elems.push_back(value);
   return self;
+}
+
+static id
+Array__pop_o(id self, int selector, ...)
+{
+  (void)selector;
+  Array_* arr = body<Array_>(self);
+  if (arr->elems.empty()) {
+    zefc_error("cannot pop from empty array");
+  }
+  id result = arr->elems.back();
+  arr->elems.pop_back();
+  return result;
+}
+
+static id
+Array__shift_o(id self, int selector, ...)
+{
+  (void)selector;
+  Array_* arr = body<Array_>(self);
+  if (arr->elems.empty()) {
+    zefc_error("cannot shift from empty array");
+  }
+  id result = arr->elems.front();
+  arr->elems.erase(arr->elems.begin());
+  return result;
+}
+
+static id
+Array__unshift_o(id self, int selector, id value)
+{
+  (void)selector;
+  Array_* arr = body<Array_>(self);
+  arr->elems.insert(arr->elems.begin(), value);
+  return null_id();
 }
 
 static id
@@ -125,6 +164,9 @@ array_runtime_init()
   Array_vtable = vtable_create();
   vtable_set(Array_vtable, ZEFC_SEL_toString_o, Array__toString_o);
   vtable_set(Array_vtable, ZEFC_SEL_push_o, Array__push_o);
+  vtable_set(Array_vtable, selector_intern("pop_o"), Array__pop_o);
+  vtable_set(Array_vtable, selector_intern("shift_o"), Array__shift_o);
+  vtable_set(Array_vtable, selector_intern("unshift_o"), Array__unshift_o);
   vtable_set(Array_vtable, ZEFC_SEL_GET_i, Array__GET_i);
   vtable_set(Array_vtable, ZEFC_SEL_PUT_i, Array__PUT_i);
   vtable_set(Array_vtable, ZEFC_SEL_mul_PUT_i, Array__mul_PUT_i);

@@ -137,8 +137,15 @@ zefc_set_isa(id obj, VTable* vt)
 
 id doesNotUnderstand(id self, int selector, ...)
 {
-  std::fprintf(stderr, "doesNotUnderstand: self=%p selector=%d\n",
-               static_cast<void*>(self), selector);
+  const char* name = "?";
+  for (const auto& entry : g_selectors) {
+    if (entry.second == selector) {
+      name = entry.first.c_str();
+      break;
+    }
+  }
+  std::fprintf(stderr, "doesNotUnderstand: self=%p selector=%d (%s)\n",
+               static_cast<void*>(self), selector, name);
   std::exit(1);
 }
 

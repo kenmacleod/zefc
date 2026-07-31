@@ -1,0 +1,637 @@
+# Copyright 2008 the V8 project authors. All rights reserved.
+# Copyright 1996 John Maloney and Mario Wolczko.
+
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+
+
+# This implementation of the DeltaBlue benchmark is derived
+# from the Smalltalk implementation by John Maloney and Mario
+# Wolczko. Some parts have been translated directly, whereas
+# others have been modified more aggresively to make it feel
+# more like a JavaScript program.
+
+# Converted to Pizlscript by Fil
+
+
+class Strength {
+    my strengthValue, name
+
+    fn (inStrengthValue, inName)
+    {
+        strengthValue = inStrengthValue
+        name = inName
+    }
+
+    fn strengthValue strengthValue
+    fn name name
+
+    fn nextWeaker
+    {
+        if (strengthValue == 0)
+            return Strength_Weakest
+        if (strengthValue == 1)
+            return Strength_WeakDefault
+        if (strengthValue == 2)
+            return Strength_Normal
+        if (strengthValue == 3)
+            return Strength_StrongDefault
+        if (strengthValue == 4)
+            return Strength_Preferred
+        if (strengthValue == 5)
+            return Strength_Required
+    }
+
+    fn toString name
+}
+
+my Strength_Required = Strength(0, "required")
+my Strength_StrongPreferred = Strength(1, "strongPreferred")
+my Strength_Preferred = Strength(2, "preferred")
+my Strength_StrongDefault = Strength(3, "strongDefault")
+my Strength_Normal = Strength(4, "normal")
+my Strength_WeakDefault = Strength(5, "weakDefault")
+my Strength_Weakest = Strength(6, "weakest")
+
+fn Strength_stronger(s1, s2) s1.strengthValue < s2.strengthValue
+fn Strength_weaker(s1, s2) s1.strengthValue > s2.strengthValue
+fn Strength_weakestOf(s1, s2) if (Strength_weaker(s1, s2)) s1 else s2
+fn Strength_strongest(s1, s2) if (Strength_stronger(s1, s2)) s1 else s2
+
+class Constraint {
+    my strength
+
+    fn (inStrength)
+    {
+        strength = inStrength
+    }
+
+    fn strength strength
+
+    fn addConstraint
+    {
+        addToGraph
+        planner.incrementalAdd(this)
+    }
+
+    fn satisfy(mark)
+    {
+        chooseMethod(mark)
+        if (!isSatisfied) {
+            if (strength == Strength_Required)
+                error("Could not satisfy a required constraint!")
+            return
+        }
+        markInputs(mark)
+        my out = output
+        my overridden = out.determinedBy
+        if (overridden)
+            overridden.markUnsatisfied
+        out.determinedBy = this
+        if (!planner.addPropagate(this, mark))
+            error("Cycle encountered")
+        out.mark = mark
+        return overridden
+    }
+
+    fn destroyConstraint
+    {
+        if (isSatisfied)
+            planner.incrementalRemove(this)
+        else
+            removeFromGraph
+    }
+
+    fn isInput false
+}
+
+class UnaryConstraint : Constraint {
+    my myOutput
+    my satisfied
+
+    fn (v, strength)
+    {
+        super(strength)
+        myOutput = v
+        satisfied = false
+        addConstraint
+    }
+
+    fn addToGraph
+    {
+        myOutput.addConstraint(this)
+        satisfied = false
+    }
+
+    fn chooseMethod(mark)
+    {
+        satisfied = myOutput.mark != mark && Strength_stronger(strength, myOutput.walkStrength)
+    }
+
+    fn isSatisfied satisfied
+
+    fn markInputs(mark) { }
+
+    fn output myOutput
+
+    fn recalculate
+    {
+        myOutput.walkStrength = strength
+        myOutput.stay = !isInput
+        if (myOutput.stay)
+            execute
+    }
+
+    fn markUnsatisfied satisfied = false
+    
+    fn inputsKnown true
+
+    fn removeFromGraph
+    {
+        if (myOutput)
+            myOutput.removeConstraint(this)
+        satisfied = false
+    }
+}
+
+class StayConstraint : UnaryConstraint {
+    fn (v, str) super(v, str)
+
+    fn execute { }
+}
+
+class EditConstraint : UnaryConstraint {
+    fn (v, str) super(v, str)
+
+    fn isInput true
+
+    fn execute { }
+}
+
+my Direction_None = 0
+my Direction_Forward = 1
+my Direction_Backward = -1
+
+class BinaryConstraint : Constraint {
+    my v1, v2, direction
+
+    fn (var1, var2, strength)
+    {
+        super(strength)
+        v1 = var1
+        v2 = var2
+        direction = Direction_None
+        addConstraint
+    }
+
+    fn v1 v1
+    fn v2 v2
+    fn direction direction
+
+    fn chooseMethod(mark)
+    {
+        if (v1.mark == mark) {
+            direction = if (v2.mark != mark && Strength_stronger(strength, v2.walkStrength))
+                Direction_Forward
+            else
+                Direction_None
+        }
+        if (v2.mark == mark) {
+            direction = if (v1.mark != mark && Strength_stronger(strength, v1.walkStrength))
+                Direction_Backward
+            else
+                Direction_None
+        }
+        if (Strength_weaker(v1.walkStrength, v2.walkStrength)) {
+            direction = if (Strength_stronger(strength, v1.walkStrength))
+                Direction_Backward
+            else
+                Direction_None
+        } else {
+            direction = if (Strength_stronger(strength, v2.walkStrength))
+                Direction_Forward
+            else
+                Direction_Backward
+        }
+    }
+
+    fn addToGraph
+    {
+        v1.addConstraint(this)
+        v2.addConstraint(this)
+        direction = Direction_None
+    }
+
+    fn isSatisfied direction != Direction_None
+
+    fn markInputs(mark)
+    {
+        input.mark = mark
+    }
+
+    fn input if (direction == Direction_Forward) v1 else v2
+    fn output if (direction == Direction_Forward) v2 else v1
+
+    fn recalculate
+    {
+        my in = input
+        my out = output
+        out.walkStrength = Strength_weakestOf(strength, in.walkStrength)
+        out.stay = in.stay
+        if (out.stay) execute
+    }
+
+    fn markUnsatisfied direction = Direction_None
+
+    fn inputsKnown(mark)
+    {
+        my i = input
+        i.mark == mark || i.stay || !i.determinedBy
+    }
+
+    fn removeFromGraph
+    {
+        if (v1)
+            v1.removeConstraint(this)
+        if (v2)
+            v2.removeConstraint(this)
+        direction = Direction_None
+    }
+}
+
+class ScaleConstraint : BinaryConstraint {
+    my scale, offset
+
+    fn (src, inScale, inOffset, dest, strength)
+    {
+        scale = inScale
+        offset = inOffset
+        super(src, dest, strength)
+    }
+
+    fn addToGraph
+    {
+        super.addToGraph
+        scale.addConstraint(this)
+        offset.addConstraint(this)
+    }
+
+    fn removeFromGraph
+    {
+        super.removeFromGraph
+        if (scale)
+            scale.removeConstraint(this)
+        if (offset)
+            offset.removeConstraint(this)
+    }
+
+    fn markInputs(mark)
+    {
+        super.markInputs(mark)
+        scale.mark = offset.mark = mark
+    }
+
+    fn execute
+    {
+        if (direction == Direction_Forward)
+            v2.value = v1.value * scale.value + offset.value
+        else
+            v1.value = (v2.value - offset.value) / scale.value
+    }
+
+    fn recalculate
+    {
+        my in = input
+        my out = output
+        out.walkStrength = Strength_weakestOf(strength, in.walkStrength)
+        out.stay = in.stay && scale.stay && offset.stay
+        if (out.stay)
+            execute
+    }
+}
+
+class EqualityConstraint : BinaryConstraint {
+    fn (var1, var2, strength) super(var1, var2, strength)
+
+    fn execute output.value = input.value
+}
+
+class Variable {
+    my value, constraints, determinedBy, mark, walkStrength, stay, name
+
+    fn (inName, initialValue)
+    {
+        value = initialValue
+        constraints = []
+        determinedBy = null
+        mark = 0
+        walkStrength = Strength_Weakest
+        stay = true
+        name = inName
+    }
+
+    fn value value
+    fn set_value(newValue) value = newValue
+
+    fn constraints constraints
+
+    fn determinedBy determinedBy
+    fn set_determinedBy(value) determinedBy = value
+
+    fn mark mark
+    fn set_mark(value) mark = value
+
+    fn walkStrength walkStrength
+    fn set_walkStrength(value) walkStrength = value
+
+    fn stay stay
+    fn set_stay(value) stay = value
+
+    fn name name
+
+    fn addConstraint(c)
+    {
+        constraints.push(c)
+    }
+    
+    fn removeConstraint(c)
+    {
+        my index = 0, skipped = 0
+        my i = 0
+        while (i < constraints.size) {
+            my value = constraints[i]
+            if (value != c) {
+                constraints[index] = value
+                index += 1
+            } else
+                skipped += 1
+            i += 1
+        }
+        i = 0
+        while (i < skipped) {
+            constraints.pop
+            i += 1
+        }
+        if (determinedBy == c)
+            determinedBy = null
+    }
+}
+
+class Planner {
+    my currentMark
+
+    fn
+    {
+        currentMark = 0
+    }
+
+    fn incrementalAdd(c)
+    {
+        my mark = newMark
+        my overridden = c.satisfy(mark)
+        while (overridden)
+            overridden = overridden.satisfy(mark)
+    }
+
+    fn incrementalRemove(c)
+    {
+        my out = c.output
+        c.markUnsatisfied
+        c.removeFromGraph
+        my unsatisfied = removePropagateFrom(out)
+        my strength = Strength_Required
+        while (strength != Strength_Weakest) {
+            my i = 0
+            while (i < unsatisfied.size) {
+                my u = unsatisfied[i]
+                if (u.strength == strength)
+                    incrementalAdd(u)
+                i += 1
+            }
+            strength = strength.nextWeaker
+        }
+    }
+
+    fn newMark currentMark += 1
+
+    fn makePlan(sources)
+    {
+        my mark = newMark
+        my plan = Plan()
+        my todo = sources
+        while (todo.size > 0) {
+            my c = todo.shift
+            if (c.output.mark != mark && c.inputsKnown(mark)) {
+                plan.addConstraint(c)
+                c.output.mark = mark
+                addConstraintsConsumingTo(c.output, todo)
+            }
+        }
+        return plan
+    }
+
+    fn extractPlanFromConstraints(constraints)
+    {
+        my sources = []
+        my i = 0
+        while (i < constraints.size) {
+            my c = constraints[i]
+            if (c.isInput && c.isSatisfied)
+                sources.push(c)
+            i += 1
+        }
+        return makePlan(sources)
+    }
+
+    fn addPropagate(c, mark)
+    {
+        my todo = []
+        todo.push(c)
+        while (todo.size > 0) {
+            my d = todo.shift
+            if (d.output.mark == mark) {
+                incrementalRemove(c)
+                return false
+            }
+            d.recalculate
+            addConstraintsConsumingTo(d.output, todo)
+        }
+        return true
+    }
+
+    fn removePropagateFrom(out)
+    {
+        out.determinedBy = null
+        out.walkStrength = Strength_Weakest
+        out.stay = true
+        my unsatisfied = []
+        my todo = []
+        todo.push(out)
+        while (todo.size > 0) {
+            my v = todo.shift
+            my i = 0
+            while (i < v.constraints.size) {
+                my c = v.constraints[i]
+                if (!c.isSatisfied)
+                    unsatisfied.push(c)
+                i += 1
+            }
+            my determining = v.determinedBy
+            i = 0
+            while ( i < v.constraints.size) {
+                my next = v.constraints[i]
+                if (next != determining && next.isSatisfied) {
+                    next.recalculate
+                    todo.push(next.output)
+                }
+                i += 1
+            }
+        }
+        return unsatisfied
+    }
+
+    fn addConstraintsConsumingTo(v, coll)
+    {
+        my determining = v.determinedBy
+        my cc = v.constraints
+        my i = 0;
+        while (i < cc.size) {
+            my c = cc[i]
+            if (c != determining && c.isSatisfied)
+                coll.push(c)
+            i += 1
+        }
+    }
+}
+
+class Plan {
+    my v
+
+    fn () v = []
+
+    fn addConstraint(c) v.push(c)
+
+    fn size v.size
+
+    fn constraintAt(index) v[index]
+
+    fn execute
+    {
+        my i = 0
+        while (i < size) {
+            constraintAt(i).execute
+            i += 1
+        }
+    }
+}
+
+my planner
+
+fn chainTest(n)
+{
+    planner = Planner()
+    my prev = null, first = null, last = null
+
+    my i = 0
+    while (i <= n) {
+        my name = "v" + String(i)
+        my v = Variable(name, 0)
+        if (prev)
+            EqualityConstraint(prev, v, Strength_Required)
+        if (i == 0)
+            first = v
+        if (i == n)
+            last = v
+        prev = v
+        i += 1
+    }
+
+    StayConstraint(last, Strength_StrongDefault)
+    my edit = EditConstraint(first, Strength_Preferred)
+    my edits = []
+    edits.push(edit)
+    my plan = planner.extractPlanFromConstraints(edits)
+    i = 0;
+    while (i < 100) {
+        first.value = i
+        plan.execute
+        if (last.value != i)
+            error("Chain test failed")
+        i += 1
+    }
+}
+
+fn projectionTest(n)
+{
+    planner = Planner()
+    my scale = Variable("scale", 10)
+    my offset = Variable("offset", 1000)
+    my src = null, dst = null
+
+    my dests = []
+    my i = 0
+    while (i < n) {
+        src = Variable("src" + String(i), i)
+        dst = Variable("dst" + String(i), i)
+        dests.push(dst)
+        StayConstraint(src, Strength_Normal)
+        ScaleConstraint(src, scale, offset, dst, Strength_Required)
+        i += 1
+    }
+
+    change(src, 17)
+    if (dst.value != 1170)
+        error("Projection 1 failed")
+    change(dst, 1050)
+    if (src.value != 5)
+        error("Projection 2 failed")
+    change(scale, 5);
+    i = 0
+    while (i < n - 1) {
+        if (dests[i].value != i * 5 + 1000)
+            error("Projection 3 failed")
+        i += 1
+    }
+    change(offset, 2000)
+    i = 0
+    while (i < n - 1) {
+        if (dests[i].value != i * 5 + 2000)
+            error("Projection 4 failed")
+        i += 1
+    }
+}
+
+fn change(v, newValue)
+{
+    my edit = EditConstraint(v, Strength_Preferred)
+    my edits = []
+    edits.push(edit)
+    my plan = planner.extractPlanFromConstraints(edits)
+    my i = 0
+    while (i < 10) {
+        v.value = newValue
+        plan.execute
+        i += 1
+    }
+    edit.destroyConstraint
+}
+
+my i = 0
+while (i < 20) {
+    chainTest(100)
+    projectionTest(100)
+    i += 1
+}
+
+println("OK")

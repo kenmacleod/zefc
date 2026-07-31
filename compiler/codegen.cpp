@@ -1,6 +1,7 @@
 #include "codegen.hpp"
 #include "version.hpp"
 
+#include <functional>
 #include <sstream>
 #include <stdexcept>
 #include <unordered_map>
@@ -339,6 +340,187 @@ emit_mark_super_inited(Ctx& ctx)
     return;
   }
   ctx.out << "  body<" << class_cpp(*ctx.current_class) << "_>(self)->zefc_super_inited = true;\n";
+}
+
+// True when immediate parent has no parent of its own (Foo in `class Bar : Foo`).
+bool
+parent_is_root(const ClassDecl& c,
+               const std::function<const ClassDecl*(const std::string&)>& lookup)
+{
+  if (c.parent.empty()) {
+    return true;
+  }
+  const ClassDecl* p = lookup(c.parent);
+  return !p || p->parent.empty();
+}
+
+// Collect mangled selectors this class declares (so ancestors do not re-emit them).
+void
+collect_own_instance_selectors(const ClassDecl& c, std::unordered_set<std::string>& seen)
+{
+  for (const Method& m : c.methods) {
+    if (!m.name.empty() && !m.is_static) {
+      seen.insert(mangle_method(m.name, m.params.size()));
+    }
+  }
+  for (const Field& f : c.fields) {
+    if (f.is_static) {
+      continue;
+    }
+    if (f.readable || f.accessible) {
+      seen.insert(mangle_getter(f.name));
+    }
+    if (f.accessible) {
+      seen.insert(mangle_setter(f.name));
+    }
+  }
+  for (const ClassDecl::Nested& n : c.nested) {
+    if (!n.is_static && !n.is_private) {
+      seen.insert(mangle_getter(n.decl->name));
+    }
+  }
+}
+
+// Emit Sub__sel wrappers that forward to ImmediateParent__sel for every ancestor
+// instance method/accessor not overridden (full chain, not only the direct parent).
+void
+emit_inherited_instance_forwards(Ctx& ctx, const ClassDecl& c, const std::string& name,
+                                 const std::string& parent_cpp,
+                                 const std::function<const ClassDecl*(const std::string&)>& lookup)
+{
+  std::unordered_set<std::string> seen;
+  collect_own_instance_selectors(c, seen);
+  // Zef checkConstructed runs on the defining class. Inherited forwards either
+  // rely on Parent__method's check, or (when parent is a root class with no flag)
+  // check that this leaf called super.
+  const bool check_leaf = parent_is_root(c, lookup);
+  std::string p = c.parent;
+  while (!p.empty()) {
+    const ClassDecl* anc = lookup(p);
+    if (!anc) {
+      break;
+    }
+    for (const Method& pm : anc->methods) {
+      if (pm.name.empty() || pm.is_static) {
+        continue;
+      }
+      const std::string mangled = mangle_method(pm.name, pm.params.size());
+      if (!seen.insert(mangled).second) {
+        continue;
+      }
+      ctx.out << "static id\n" << name << "__" << mangled << "(id self, int selector";
+      for (size_t i = 0; i < pm.params.size(); ++i) {
+        ctx.out << ", id a" << i;
+      }
+      ctx.out << ")\n{\n";
+      if (check_leaf) {
+        emit_check_super_inited(ctx, name);
+      }
+      ctx.out << "  return " << parent_cpp << "__" << mangled << "(self, selector";
+      for (size_t i = 0; i < pm.params.size(); ++i) {
+        ctx.out << ", a" << i;
+      }
+      ctx.out << ");\n}\n\n";
+    }
+    for (const Field& f : anc->fields) {
+      if (f.is_static) {
+        continue;
+      }
+      if (f.readable || f.accessible) {
+        const std::string g = mangle_getter(f.name);
+        if (seen.insert(g).second) {
+          ctx.out << "static id\n" << name << "__" << g << "(id self, int selector)\n{\n";
+          if (check_leaf) {
+            emit_check_super_inited(ctx, name);
+          }
+          ctx.out << "  return " << parent_cpp << "__" << g << "(self, selector);\n}\n\n";
+        }
+      }
+      if (f.accessible) {
+        const std::string s = mangle_setter(f.name);
+        if (seen.insert(s).second) {
+          ctx.out << "static id\n" << name << "__" << s
+                  << "(id self, int selector, id v)\n{\n";
+          if (check_leaf) {
+            emit_check_super_inited(ctx, name);
+          }
+          ctx.out << "  return " << parent_cpp << "__" << s << "(self, selector, v);\n}\n\n";
+        }
+      }
+    }
+    for (const ClassDecl::Nested& n : anc->nested) {
+      if (n.is_static || n.is_private) {
+        continue;
+      }
+      const std::string g = mangle_getter(n.decl->name);
+      if (!seen.insert(g).second) {
+        continue;
+      }
+      ctx.out << "static id\n" << name << "__" << g << "(id self, int selector)\n{\n";
+      if (check_leaf) {
+        emit_check_super_inited(ctx, name);
+      }
+      ctx.out << "  return " << parent_cpp << "__" << g << "(self, selector);\n}\n\n";
+    }
+    p = anc->parent;
+  }
+}
+
+void
+emit_inherited_vtable_sets(Ctx& ctx, const ClassDecl& c, const std::string& name,
+                           const std::function<const ClassDecl*(const std::string&)>& lookup)
+{
+  std::unordered_set<std::string> seen;
+  collect_own_instance_selectors(c, seen);
+  std::string p = c.parent;
+  while (!p.empty()) {
+    const ClassDecl* anc = lookup(p);
+    if (!anc) {
+      break;
+    }
+    for (const Method& pm : anc->methods) {
+      if (pm.name.empty() || pm.is_static) {
+        continue;
+      }
+      const std::string mangled = mangle_method(pm.name, pm.params.size());
+      if (!seen.insert(mangled).second) {
+        continue;
+      }
+      ctx.out << "  vtable_set(" << name << "_vtable, selector_intern(\"" << mangled
+              << "\"), " << name << "__" << mangled << ");\n";
+    }
+    for (const Field& f : anc->fields) {
+      if (f.is_static) {
+        continue;
+      }
+      if (f.readable || f.accessible) {
+        const std::string g = mangle_getter(f.name);
+        if (seen.insert(g).second) {
+          ctx.out << "  vtable_set(" << name << "_vtable, selector_intern(\"" << g
+                  << "\"), " << name << "__" << g << ");\n";
+        }
+      }
+      if (f.accessible) {
+        const std::string s = mangle_setter(f.name);
+        if (seen.insert(s).second) {
+          ctx.out << "  vtable_set(" << name << "_vtable, selector_intern(\"" << s
+                  << "\"), " << name << "__" << s << ");\n";
+        }
+      }
+    }
+    for (const ClassDecl::Nested& n : anc->nested) {
+      if (n.is_static || n.is_private) {
+        continue;
+      }
+      const std::string g = mangle_getter(n.decl->name);
+      if (!seen.insert(g).second) {
+        continue;
+      }
+      ctx.out << "  vtable_set(" << name << "_vtable, selector_intern(\"" << g << "\"), "
+              << name << "__" << g << ");\n";
+    }
+    p = anc->parent;
+  }
 }
 
 void
@@ -1002,9 +1184,11 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
         return;
       }
       // Bare `super` → parent zero-arg init on same object.
+      // Mark before Parent__init: Zef sets parent Storage* before running the
+      // parent constructor (subclass methods may run during parent init).
       const std::string& parent = ctx.current_class->decl->parent;
-      ctx.out << "  " << dst << " = " << parent << "__init(self, 0);\n";
       emit_mark_super_inited(ctx);
+      ctx.out << "  " << dst << " = " << parent << "__init(self, 0);\n";
       return;
     }
     // Locals/params shadow fields and zero-arg getters (`my left` vs `fn left`).
@@ -1886,12 +2070,12 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
           return;
         }
         const std::string& parent = ctx.current_class->decl->parent;
+        emit_mark_super_inited(ctx);
         ctx.out << "  " << dst << " = " << parent << "__init(self, 0";
         for (const std::string& a : arg_tmps) {
           ctx.out << ", " << a;
         }
         ctx.out << ");\n";
-        emit_mark_super_inited(ctx);
         return;
       }
       if (callee == "println" || callee == "print") {
@@ -2160,9 +2344,30 @@ emit_nested_class(Ctx& ctx, const ClassDecl& c, const std::vector<std::string>& 
   // can treat a subclass instance as a layout-compatible Parent_*.
   ctx.prelude << "struct " << name << "_ {\n  IsaPtr isa_;\n";
   if (parent_decl) {
-    for (const Field& f : parent_decl->fields) {
-      if (!f.is_static) {
-        ctx.prelude << "  " << kIdType << " " << f.name << ";\n";
+    // Walk parent chain for fields + each ancestor's super_inited pad.
+    std::vector<const ClassDecl*> chain;
+    const ClassDecl* cur = parent_decl;
+    while (cur) {
+      chain.push_back(cur);
+      if (cur->parent.empty()) {
+        break;
+      }
+      auto dit = ctx.local_class_decls.find(cur->parent);
+      if (dit != ctx.local_class_decls.end()) {
+        cur = dit->second;
+        continue;
+      }
+      auto cit = ctx.classes.find(cur->parent);
+      cur = cit == ctx.classes.end() ? nullptr : cit->second.decl;
+    }
+    for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+      for (const Field& f : (*it)->fields) {
+        if (!f.is_static) {
+          ctx.prelude << "  " << kIdType << " " << f.name << ";\n";
+        }
+      }
+      if (!(*it)->parent.empty()) {
+        ctx.prelude << "  bool zefc_super_inited_" << (*it)->name << ";\n";
       }
     }
     for (const std::string& cap : parent_caps) {
@@ -2323,57 +2528,20 @@ emit_nested_class(Ctx& ctx, const ClassDecl& c, const std::vector<std::string>& 
       mctx.out << "}\n\n";
     }
 
-    // Parent accessors / methods not overridden (function-local subclass).
+    // Parent accessors / methods not overridden (function-local subclass; full chain).
     if (parent_decl) {
-      std::unordered_set<std::string> overridden;
-      for (const Method& m : c.methods) {
-        if (!m.name.empty() && !m.is_static) {
-          overridden.insert(mangle_method(m.name, m.params.size()));
-        }
-      }
-      for (const Field& f : c.fields) {
-        overridden.insert(mangle_getter(f.name));
-      }
-      for (const Field& f : parent_decl->fields) {
-        if (f.is_static) {
-          continue;
-        }
-        if (f.readable || f.accessible) {
-          const std::string g = mangle_getter(f.name);
-          if (!overridden.count(g)) {
-            mctx.out << "static id\n" << name << "__" << g << "(id self, int selector)\n{\n";
-            emit_check_super_inited(mctx, name);
-            mctx.out << "  return " << c.parent << "__" << g << "(self, selector);\n}\n\n";
-          }
-        }
-        if (f.accessible) {
-          const std::string s = mangle_setter(f.name);
-          mctx.out << "static id\n" << name << "__" << s
-                  << "(id self, int selector, id v)\n{\n";
-          emit_check_super_inited(mctx, name);
-          mctx.out << "  return " << c.parent << "__" << s << "(self, selector, v);\n}\n\n";
-        }
-      }
-      for (const Method& pm : parent_decl->methods) {
-        if (pm.name.empty() || pm.is_static) {
-          continue;
-        }
-        const std::string mangled = mangle_method(pm.name, pm.params.size());
-        if (overridden.count(mangled)) {
-          continue;
-        }
-        mctx.out << "static id\n" << name << "__" << mangled << "(id self, int selector";
-        for (size_t i = 0; i < pm.params.size(); ++i) {
-          mctx.out << ", id a" << i;
-        }
-        mctx.out << ")\n{\n";
-        emit_check_super_inited(mctx, name);
-        mctx.out << "  return " << c.parent << "__" << mangled << "(self, selector";
-        for (size_t i = 0; i < pm.params.size(); ++i) {
-          mctx.out << ", a" << i;
-        }
-        mctx.out << ");\n}\n\n";
-      }
+      emit_inherited_instance_forwards(
+          mctx, c, name, c.parent, [&](const std::string& pname) -> const ClassDecl* {
+            auto dit = ctx.local_class_decls.find(pname);
+            if (dit != ctx.local_class_decls.end()) {
+              return dit->second;
+            }
+            auto cit = ctx.classes.find(pname);
+            if (cit != ctx.classes.end()) {
+              return cit->second.decl;
+            }
+            return nullptr;
+          });
     }
 
     const Method* ctor = nullptr;
@@ -2476,41 +2644,18 @@ emit_nested_class(Ctx& ctx, const ClassDecl& c, const std::vector<std::string>& 
       }
     }
     if (parent_decl) {
-      std::unordered_set<std::string> overridden;
-      for (const Method& m : c.methods) {
-        if (!m.name.empty() && !m.is_static) {
-          overridden.insert(mangle_method(m.name, m.params.size()));
-        }
-      }
-      for (const Field& f : c.fields) {
-        overridden.insert(mangle_getter(f.name));
-      }
-      for (const Field& f : parent_decl->fields) {
-        if (f.is_static) {
-          continue;
-        }
-        if ((f.readable || f.accessible) && !overridden.count(mangle_getter(f.name))) {
-          mctx.out << "  vtable_set(" << name << "_vtable, selector_intern(\""
-                   << mangle_getter(f.name) << "\"), " << name << "__" << mangle_getter(f.name)
-                   << ");\n";
-        }
-        if (f.accessible) {
-          mctx.out << "  vtable_set(" << name << "_vtable, selector_intern(\""
-                   << mangle_setter(f.name) << "\"), " << name << "__" << mangle_setter(f.name)
-                   << ");\n";
-        }
-      }
-      for (const Method& pm : parent_decl->methods) {
-        if (pm.name.empty() || pm.is_static) {
-          continue;
-        }
-        const std::string mangled = mangle_method(pm.name, pm.params.size());
-        if (overridden.count(mangled)) {
-          continue;
-        }
-        mctx.out << "  vtable_set(" << name << "_vtable, selector_intern(\"" << mangled
-                 << "\"), " << name << "__" << mangled << ");\n";
-      }
+      emit_inherited_vtable_sets(
+          mctx, c, name, [&](const std::string& pname) -> const ClassDecl* {
+            auto dit = ctx.local_class_decls.find(pname);
+            if (dit != ctx.local_class_decls.end()) {
+              return dit->second;
+            }
+            auto cit = ctx.classes.find(pname);
+            if (cit != ctx.classes.end()) {
+              return cit->second.decl;
+            }
+            return nullptr;
+          });
     }
     for (const Method& m : c.methods) {
       if (m.name.empty() || m.is_static) {
@@ -2911,6 +3056,17 @@ collect_classes(Ctx& ctx, const Program& program)
           kv.second.field_names.insert(f.name);
         }
       }
+      for (const Method& m : it->second.decl->methods) {
+        if (m.name.empty() || m.is_static) {
+          continue;
+        }
+        if (!kv.second.methods.count(m.name)) {
+          kv.second.methods[m.name] = m.params.size();
+        }
+        if (m.params.empty()) {
+          kv.second.method_names.insert(m.name);
+        }
+      }
       for (const auto& nk : it->second.nested_instance) {
         kv.second.nested_instance.insert(nk);
         kv.second.field_names.insert(nk.first);
@@ -3290,6 +3446,8 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
 
   ctx.out << "struct " << name << "_ {\n  IsaPtr isa_;\n";
   {
+    // Parent layout must be an exact prefix (including each ancestor's
+    // zefc_super_inited) so body<Parent_>(subclass)->zefc_super_inited works.
     std::vector<std::string> chain;
     std::string p = c.parent;
     while (!p.empty()) {
@@ -3301,18 +3459,24 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
       p = it->second.decl->parent;
     }
     for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
-      for (const Field& f : ctx.classes[*it].decl->fields) {
+      const ClassInfo& ai = ctx.classes[*it];
+      for (const Field& f : ai.decl->fields) {
         if (!f.is_static) {
           ctx.out << "  " << kIdType << " " << f.name << ";\n";
         }
       }
-      for (const ClassDecl::Nested& n : ctx.classes[*it].decl->nested) {
+      for (const ClassDecl::Nested& n : ai.decl->nested) {
         if (!n.is_static) {
           ctx.out << "  " << kIdType << " " << n.decl->name << ";\n";
         }
       }
-      if (ctx.classes[*it].has_outer_field) {
+      if (ai.has_outer_field) {
         ctx.out << "  " << kIdType << " zefc_outer;\n";
+      }
+      if (!ai.decl->parent.empty()) {
+        // Unique name in this struct; Parent_ still sees it as zefc_super_inited
+        // at this offset via reinterpret_cast.
+        ctx.out << "  bool zefc_super_inited_" << *it << ";\n";
       }
     }
   }
@@ -3330,7 +3494,7 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
     ctx.out << "  " << kIdType << " zefc_outer;\n";
   }
   if (!c.parent.empty()) {
-    // Trailing flag keeps parent field prefix layout-compatible (Foo_ ⊂ Bar_).
+    // Trailing flag: this class called super (Zef parent Storage* link).
     ctx.out << "  bool zefc_super_inited;\n";
   }
   ctx.out << "};\n\n";
@@ -3632,65 +3796,16 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
     ctx.out << "}\n\n";
   }
 
-  // Inherited parent methods/accessors: wrap with super-inited check (Zef checkConstructed).
+  // Inherited ancestor methods/accessors: wrap with super-inited check (Zef checkConstructed).
   if (!c.parent.empty()) {
     auto pit = ctx.classes.find(c.parent);
     if (pit != ctx.classes.end()) {
-      const ClassDecl& parent = *pit->second.decl;
-      const std::string& pcpp = class_cpp(pit->second);
-      std::unordered_set<std::string> overridden;
-      for (const Method& m : c.methods) {
-        if (!m.name.empty() && !m.is_static) {
-          overridden.insert(mangle_method(m.name, m.params.size()));
-        }
-      }
-      for (const Method& pm : parent.methods) {
-        if (pm.name.empty() || pm.is_static) {
-          continue;
-        }
-        const std::string mangled = mangle_method(pm.name, pm.params.size());
-        if (overridden.count(mangled)) {
-          continue;
-        }
-        ctx.out << "static id\n" << name << "__" << mangled << "(id self, int selector";
-        for (size_t i = 0; i < pm.params.size(); ++i) {
-          ctx.out << ", id a" << i;
-        }
-        ctx.out << ")\n{\n";
-        emit_check_super_inited(ctx, name);
-        ctx.out << "  return " << pcpp << "__" << mangled << "(self, selector";
-        for (size_t i = 0; i < pm.params.size(); ++i) {
-          ctx.out << ", a" << i;
-        }
-        ctx.out << ");\n}\n\n";
-      }
-      for (const Field& f : parent.fields) {
-        if (f.is_static) {
-          continue;
-        }
-        if (f.readable || f.accessible) {
-          const std::string g = mangle_getter(f.name);
-          ctx.out << "static id\n" << name << "__" << g << "(id self, int selector)\n{\n";
-          emit_check_super_inited(ctx, name);
-          ctx.out << "  return " << pcpp << "__" << g << "(self, selector);\n}\n\n";
-        }
-        if (f.accessible) {
-          const std::string s = mangle_setter(f.name);
-          ctx.out << "static id\n" << name << "__" << s
-                  << "(id self, int selector, id v)\n{\n";
-          emit_check_super_inited(ctx, name);
-          ctx.out << "  return " << pcpp << "__" << s << "(self, selector, v);\n}\n\n";
-        }
-      }
-      for (const ClassDecl::Nested& n : parent.nested) {
-        if (n.is_static || n.is_private) {
-          continue;
-        }
-        const std::string g = mangle_getter(n.decl->name);
-        ctx.out << "static id\n" << name << "__" << g << "(id self, int selector)\n{\n";
-        emit_check_super_inited(ctx, name);
-        ctx.out << "  return " << pcpp << "__" << g << "(self, selector);\n}\n\n";
-      }
+      emit_inherited_instance_forwards(
+          ctx, c, name, class_cpp(pit->second),
+          [&](const std::string& pname) -> const ClassDecl* {
+            auto it = ctx.classes.find(pname);
+            return it == ctx.classes.end() ? nullptr : it->second.decl;
+          });
     }
   }
 
@@ -3704,50 +3819,10 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
   }
   ctx.out << "  " << name << "_vtable = vtable_create();\n";
   if (!c.parent.empty()) {
-    auto pit = ctx.classes.find(c.parent);
-    if (pit != ctx.classes.end()) {
-      const ClassDecl& parent = *pit->second.decl;
-      std::unordered_set<std::string> overridden;
-      for (const Method& m : c.methods) {
-        if (!m.name.empty() && !m.is_static) {
-          overridden.insert(mangle_method(m.name, m.params.size()));
-        }
-      }
-      for (const Method& pm : parent.methods) {
-        if (pm.name.empty() || pm.is_static) {
-          continue;
-        }
-        const std::string mangled = mangle_method(pm.name, pm.params.size());
-        if (overridden.count(mangled)) {
-          continue;
-        }
-        ctx.out << "  vtable_set(" << name << "_vtable, selector_intern(\"" << mangled
-                << "\"), " << name << "__" << mangled << ");\n";
-      }
-      for (const Field& f : parent.fields) {
-        if (f.is_static) {
-          continue;
-        }
-        if (f.readable || f.accessible) {
-          ctx.out << "  vtable_set(" << name << "_vtable, selector_intern(\""
-                  << mangle_getter(f.name) << "\"), " << name << "__"
-                  << mangle_getter(f.name) << ");\n";
-        }
-        if (f.accessible) {
-          ctx.out << "  vtable_set(" << name << "_vtable, selector_intern(\""
-                  << mangle_setter(f.name) << "\"), " << name << "__"
-                  << mangle_setter(f.name) << ");\n";
-        }
-      }
-      for (const ClassDecl::Nested& n : parent.nested) {
-        if (n.is_static || n.is_private) {
-          continue;
-        }
-        ctx.out << "  vtable_set(" << name << "_vtable, selector_intern(\""
-                << mangle_getter(n.decl->name) << "\"), " << name << "__"
-                << mangle_getter(n.decl->name) << ");\n";
-      }
-    }
+    emit_inherited_vtable_sets(ctx, c, name, [&](const std::string& pname) -> const ClassDecl* {
+      auto it = ctx.classes.find(pname);
+      return it == ctx.classes.end() ? nullptr : it->second.decl;
+    });
   }
   for (const Field& f : c.fields) {
     if (f.is_static) {
