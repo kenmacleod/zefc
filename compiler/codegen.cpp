@@ -2521,7 +2521,8 @@ emit_nested_class(Ctx& ctx, const ClassDecl& c, const std::vector<std::string>& 
           emit_check_super_inited(mctx, name);
         }
         mctx.out << "  body<" << name << "_>(self)->" << f.name << " = v;\n";
-        mctx.out << "  return null_id();\n}\n\n";
+        // Assignment expressions yield the RHS (chained `a.x = b.x = v`).
+        mctx.out << "  return v;\n}\n\n";
       }
     }
 
@@ -3255,7 +3256,8 @@ emit_package(Ctx& ctx, const PackageInfo& pkg)
               << "(id self, int selector, id v)\n{\n  (void)selector;\n";
       emit_pkg_method_prologue();
       ctx.out << "  body<" << name << "_>(self)->" << f->name << " = v;\n";
-      ctx.out << "  return null_id();\n}\n\n";
+      // Assignment expressions yield the RHS (chained `a.x = b.x = v`).
+      ctx.out << "  return v;\n}\n\n";
     }
   }
   for (const auto& kv : pkg.classes) {
@@ -3461,7 +3463,8 @@ emit_accessor_methods(Ctx& ctx, const ClassDecl& c, const std::string& name)
         emit_check_super_inited(ctx, name);
       }
       ctx.out << "  body<" << name << "_>(self)->" << f.name << " = v;\n";
-      ctx.out << "  return null_id();\n}\n\n";
+      // Assignment expressions yield the RHS (chained `a.x = b.x = v`).
+      ctx.out << "  return v;\n}\n\n";
     }
   }
   for (const ClassDecl::Nested& n : c.nested) {

@@ -79,7 +79,7 @@ id zefc_ic_set_field_miss(id obj, FieldSite* site, id value)
   site->guard = obj->isa_;
   site->offset = off;
   body<Body>(obj)->*Member = value;
-  return null_id();
+  return value;
 }
 
 template<typename Body, id Body::*Member>
@@ -100,7 +100,7 @@ zefc_ic_set_field(id obj, FieldSite* site, id value)
 {
   if (site->guard) {
     body<Body>(obj)->*Member = value;
-    return null_id();
+    return value;
   }
   return zefc_ic_set_field_miss<Body, Member>(obj, site, value);
 }
@@ -124,7 +124,7 @@ zefc_ic_set_offset(id obj, FieldSite* site, id value)
 {
   if (site->guard) {
     *field_slot(obj, site->offset) = value;
-    return null_id();
+    return value;
   }
   return zefc_ic_set_offset_miss(obj, site, value);
 }

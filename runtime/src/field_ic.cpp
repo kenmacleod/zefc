@@ -110,7 +110,7 @@ zefc_ic_set_offset_miss(id obj, FieldSite* site, id value)
   site->guard = obj->isa_;
   site->offset = off;
   *field_slot(obj, site->offset) = value;
-  return null_id();
+  return value;
 }
 
 } // namespace zefc
