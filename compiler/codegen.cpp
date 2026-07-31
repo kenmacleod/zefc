@@ -63,6 +63,13 @@ mangle_method(const std::string& name, size_t arity)
   return m;
 }
 
+// Static methods live as Class__sel so they can share names with instance methods.
+std::string
+method_sym(const std::string& cls, bool is_static, const std::string& mangled)
+{
+  return is_static ? (cls + "Class__" + mangled) : (cls + "__" + mangled);
+}
+
 std::string
 mangle_getter(const std::string& field)
 {
@@ -181,6 +188,7 @@ struct Ctx {
   std::unordered_set<std::string> local_vars;
   // Nested class names in scope → capture field names on the class object.
   std::unordered_map<std::string, std::vector<std::string>> local_classes;
+  std::unordered_set<std::string> local_class_static_init;
   std::unordered_set<std::string> nested_emitted;
   // While emitting a nested-class constructor (class.call):
   std::string nest_capture_type;   // e.g. "WTFClass_"
@@ -692,6 +700,7 @@ emit_lambda(Ctx& ctx, const Expr& e, const std::string& dst)
   body_ctx.package_cpp = ctx.package_cpp;
   body_ctx.imports = ctx.imports;
   body_ctx.local_classes = ctx.local_classes;
+  body_ctx.local_class_static_init = ctx.local_class_static_init;
   body_ctx.nested_emitted = ctx.nested_emitted;
   body_ctx.toplevel_vars = ctx.toplevel_vars;
   body_ctx.loaded_package_members = ctx.loaded_package_members;
@@ -852,6 +861,10 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
         } else {
           ctx.out << "    _cls->" << cap << " = " << local_sym(cap) << ";\n";
         }
+      }
+      // Function-local `static fn ()` runs each time the class object is materialized.
+      if (ctx.local_class_static_init.count(e.text)) {
+        ctx.out << "    (void)" << e.text << "__static_init(as_id(_cls), 0);\n";
       }
       ctx.out << "    " << dst << " = as_id(_cls);\n";
       ctx.out << "  }\n";
@@ -1059,7 +1072,7 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
         throw std::runtime_error("no such method: " + e.text);
       }
       if (ci.static_methods0.count(e.text)) {
-        ctx.out << "  " << dst << " = " << cpp << "__" << mangle_method(e.text, 0)
+        ctx.out << "  " << dst << " = " << method_sym(cpp, true, mangle_method(e.text, 0))
                 << "(as_id(&g_" << cpp << "Class), " << sel_expr(mangle_method(e.text, 0))
                 << ");\n";
       } else {
@@ -1132,18 +1145,41 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
       ctx.out << "  " << dst << " = ZEFC_SEND1(" << a << ", ZEFC_SITE(\"mod_o\"), " << b
               << ");\n";
     } else if (op == "==") {
-      // Doubles: numeric. Ints (immediate or heap): numeric. Else: identity.
-      ctx.out << "  " << dst << " = Int__from_i64((id_is_double(" << a
+      // Ints/doubles: numeric. Objects: equal method, else identity (Object.equal).
+      ctx.out << "  if (id_is_double(" << a << ") || (id_is_int(" << a << ") && id_is_int("
+              << b << "))) {\n";
+      ctx.out << "    " << dst << " = Int__from_i64((id_is_double(" << a
               << ") ? (Double__to_f64(" << a << ") == Double__to_f64(" << b
-              << ")) : ((id_is_int(" << a << ") && id_is_int(" << b
-              << ")) ? (Int__to_i64(" << a << ") == Int__to_i64(" << b << ")) : (" << a
-              << " == " << b << "))) ? 1 : 0);\n";
+              << ")) : (Int__to_i64(" << a << ") == Int__to_i64(" << b << "))) ? 1 : 0);\n";
+      ctx.out << "  } else {\n";
+      ctx.out << "    zefc_method _eqm = zefc_method_at(" << a << ", " << sel_expr("equal_o")
+              << ");\n";
+      ctx.out << "    if (_eqm == doesNotUnderstand) {\n";
+      ctx.out << "      " << dst << " = Int__from_i64(" << a << " == " << b << " ? 1 : 0);\n";
+      ctx.out << "    } else {\n";
+      ctx.out << "      " << dst << " = _eqm(" << a << ", " << sel_expr("equal_o") << ", " << b
+              << ");\n";
+      ctx.out << "    }\n";
+      ctx.out << "  }\n";
     } else if (op == "!=") {
-      ctx.out << "  " << dst << " = Int__from_i64((id_is_double(" << a
+      ctx.out << "  if (id_is_double(" << a << ") || (id_is_int(" << a << ") && id_is_int("
+              << b << "))) {\n";
+      ctx.out << "    " << dst << " = Int__from_i64((id_is_double(" << a
               << ") ? (Double__to_f64(" << a << ") != Double__to_f64(" << b
-              << ")) : ((id_is_int(" << a << ") && id_is_int(" << b
-              << ")) ? (Int__to_i64(" << a << ") != Int__to_i64(" << b << ")) : (" << a
-              << " != " << b << "))) ? 1 : 0);\n";
+              << ")) : (Int__to_i64(" << a << ") != Int__to_i64(" << b << "))) ? 1 : 0);\n";
+      ctx.out << "  } else {\n";
+      const std::string eq = ctx.fresh("t");
+      ctx.out << "    id " << eq << ";\n";
+      ctx.out << "    zefc_method _eqm = zefc_method_at(" << a << ", " << sel_expr("equal_o")
+              << ");\n";
+      ctx.out << "    if (_eqm == doesNotUnderstand) {\n";
+      ctx.out << "      " << eq << " = Int__from_i64(" << a << " == " << b << " ? 1 : 0);\n";
+      ctx.out << "    } else {\n";
+      ctx.out << "      " << eq << " = _eqm(" << a << ", " << sel_expr("equal_o") << ", " << b
+              << ");\n";
+      ctx.out << "    }\n";
+      ctx.out << "    " << dst << " = Int__from_i64(" << truthy_expr(eq) << " ? 0 : 1);\n";
+      ctx.out << "  }\n";
     } else if (op == "<") {
       ctx.out << "  " << dst << " = Int__from_i64((id_is_double(" << a
               << ") ? (Double__to_f64(" << a << ") < Double__to_f64(" << b
@@ -1455,7 +1491,9 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
           const std::string cpp = class_cpp(ci);
           if (arg_tmps.empty() && ci.has_static_call0) {
             ctx.out << "  ensure_" << cpp << "();\n";
-            ctx.out << "  " << dst << " = " << cpp << "__call_o(as_id(&g_" << cpp
+            const char* call_sym =
+                ci.synth_nested_call ? "__call_o" : "Class__call_o";
+            ctx.out << "  " << dst << " = " << cpp << call_sym << "(as_id(&g_" << cpp
                     << "Class), " << sel_expr("call_o") << ");\n";
           } else {
             ctx.out << "  " << dst << " = " << cpp << "__new(null_id(), 0";
@@ -1497,9 +1535,10 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
           for (const Method& m : ci.decl->methods) {
             if (m.is_static && m.name == e.lhs->text && m.params.size() == arg_tmps.size()) {
               ctx.out << "  ensure_" << cpp << "();\n";
-              ctx.out << "  " << dst << " = " << cpp << "__"
-                      << mangle_method(e.lhs->text, arg_tmps.size()) << "(as_id(&g_" << cpp
-                      << "Class), " << sel_expr(mangle_method(e.lhs->text, arg_tmps.size()));
+              ctx.out << "  " << dst << " = "
+                      << method_sym(cpp, true, mangle_method(e.lhs->text, arg_tmps.size()))
+                      << "(as_id(&g_" << cpp << "Class), "
+                      << sel_expr(mangle_method(e.lhs->text, arg_tmps.size()));
               for (const std::string& a : arg_tmps) {
                 ctx.out << ", " << a;
               }
@@ -1610,24 +1649,27 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
         return;
       }
       if (callee == "println" || callee == "print") {
-        if (arg_tmps.empty()) {
-          throw std::runtime_error(callee + " expects at least 1 argument");
-        }
-        if (arg_tmps.size() == 1) {
-          ctx.out << "  " << callee << "(" << arg_tmps[0] << ");\n";
-        } else {
-          const std::string acc = ctx.fresh("t");
-          ctx.out << "  id " << acc << " = String__from_utf8(\"\");\n";
-          for (const std::string& a : arg_tmps) {
-            const std::string s = ctx.fresh("t");
-            ctx.out << "  id " << s << " = ZEFC_SEND0(" << a << ", ZEFC_SEL_toString_o);\n";
-            ctx.out << "  " << acc << " = ZEFC_SEND1(" << acc << ", ZEFC_SEL_add_o, " << s
-                    << ");\n";
+        // User-defined fn println/print shadows the builtin (testd); `..println` is root.
+        if (!ctx.functions.count(callee)) {
+          if (arg_tmps.empty()) {
+            throw std::runtime_error(callee + " expects at least 1 argument");
           }
-          ctx.out << "  " << callee << "(" << acc << ");\n";
+          if (arg_tmps.size() == 1) {
+            ctx.out << "  " << callee << "(" << arg_tmps[0] << ");\n";
+          } else {
+            const std::string acc = ctx.fresh("t");
+            ctx.out << "  id " << acc << " = String__from_utf8(\"\");\n";
+            for (const std::string& a : arg_tmps) {
+              const std::string s = ctx.fresh("t");
+              ctx.out << "  id " << s << " = ZEFC_SEND0(" << a << ", ZEFC_SEL_toString_o);\n";
+              ctx.out << "  " << acc << " = ZEFC_SEND1(" << acc << ", ZEFC_SEL_add_o, " << s
+                      << ");\n";
+            }
+            ctx.out << "  " << callee << "(" << acc << ");\n";
+          }
+          ctx.out << "  " << dst << " = null_id();\n";
+          return;
         }
-        ctx.out << "  " << dst << " = null_id();\n";
-        return;
       }
       if (callee == "String") {
         if (arg_tmps.empty()) {
@@ -1707,7 +1749,8 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
         const ClassInfo& ci = ctx.classes.at(cpp);
         if (arg_tmps.empty() && ci.has_static_call0) {
           ctx.out << "  ensure_" << cpp << "();\n";
-          ctx.out << "  " << dst << " = " << cpp << "__call_o(as_id(&g_" << cpp
+          const char* call_sym = ci.synth_nested_call ? "__call_o" : "Class__call_o";
+          ctx.out << "  " << dst << " = " << cpp << call_sym << "(as_id(&g_" << cpp
                   << "Class), " << sel_expr("call_o") << ");\n";
         } else {
           ctx.out << "  " << dst << " = " << cpp << "__new(null_id(), 0";
@@ -1730,7 +1773,8 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
         // Class() with static call and no ctor args → invoke class.call (Zef staticcall).
         if (arg_tmps.empty() && ci.has_static_call0) {
           ctx.out << "  ensure_" << cpp << "();\n";
-          ctx.out << "  " << dst << " = " << cpp << "__call_o(as_id(&g_" << cpp
+          const char* call_sym = ci.synth_nested_call ? "__call_o" : "Class__call_o";
+          ctx.out << "  " << dst << " = " << cpp << call_sym << "(as_id(&g_" << cpp
                   << "Class), " << sel_expr("call_o") << ");\n";
         } else {
           ctx.out << "  " << dst << " = " << cpp << "__new(null_id(), 0";
@@ -1742,6 +1786,12 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
         return;
       }
       if (ctx.functions.count(callee)) {
+        // Nullary println/print override ignores call arguments (testd).
+        if ((callee == "println" || callee == "print") &&
+            ctx.functions[callee].arity == 0) {
+          ctx.out << "  " << dst << " = fn_" << callee << "();\n";
+          return;
+        }
         ctx.out << "  " << dst << " = fn_" << callee << "(";
         for (size_t i = 0; i < arg_tmps.size(); ++i) {
           if (i) {
@@ -1833,6 +1883,7 @@ emit_nested_class(Ctx& ctx, const ClassDecl& c, const std::vector<std::string>& 
     mctx.packages = ctx.packages;
     mctx.imports = ctx.imports;
     mctx.local_classes = ctx.local_classes;
+    mctx.local_class_static_init = ctx.local_class_static_init;
     mctx.source_path = ctx.source_path;
     mctx.tmp = ctx.tmp;
     mctx.closure_id = ctx.closure_id;
@@ -1859,6 +1910,20 @@ emit_nested_class(Ctx& ctx, const ClassDecl& c, const std::vector<std::string>& 
     }
 
     for (const Method& m : c.methods) {
+      if (m.name.empty() && m.is_static) {
+        mctx.out << "static id\n" << name << "__static_init(id self, int selector)\n{\n";
+        mctx.out << "  (void)selector;\n  (void)self;\n";
+        mctx.in_static_method = true;
+        const std::string tmp = mctx.fresh("t");
+        mctx.out << "  id " << tmp << ";\n";
+        mctx.allow_return = true;
+        mctx.import_binds = true;
+        emit_body(mctx, m.body, tmp, false);
+        mctx.allow_return = false;
+        mctx.in_static_method = false;
+        mctx.out << "}\n\n";
+        continue;
+      }
       if (m.name.empty() || m.is_static) {
         continue;
       }
@@ -1884,7 +1949,7 @@ emit_nested_class(Ctx& ctx, const ClassDecl& c, const std::vector<std::string>& 
     // Class object call = constructor: captures live on class `self`.
     const Method* ctor = nullptr;
     for (const Method& m : c.methods) {
-      if (m.name.empty()) {
+      if (m.name.empty() && !m.is_static) {
         ctor = &m;
         break;
       }
@@ -2016,6 +2081,12 @@ emit_block_item(Ctx& ctx, const BlockItem& item, const std::string* result_dst)
       ctx.nested_emitted.insert(c.name);
     }
     ctx.local_classes[c.name] = captures;
+    for (const Method& m : c.methods) {
+      if (m.name.empty() && m.is_static) {
+        ctx.local_class_static_init.insert(c.name);
+        break;
+      }
+    }
     if (result_dst) {
       ctx.out << "  {\n";
       ctx.out << "    ensure_" << c.name << "Class();\n";
@@ -2802,7 +2873,8 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
       ctx.out << "static id " << name << "__static_init(id self, int selector);\n";
     } else {
       const std::string mangled = mangle_method(m.name, m.params.size());
-      ctx.out << "static id " << name << "__" << mangled << "(id self, int selector";
+      ctx.out << "static id " << method_sym(name, m.is_static, mangled)
+              << "(id self, int selector";
       for (size_t i = 0; i < m.params.size(); ++i) {
         ctx.out << ", id p" << i;
       }
@@ -2974,7 +3046,8 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
       emitted_ctor = true;
     } else {
       const std::string mangled = mangle_method(m.name, m.params.size());
-      ctx.out << "static id\n" << name << "__" << mangled << "(id self, int selector";
+      ctx.out << "static id\n" << method_sym(name, m.is_static, mangled)
+              << "(id self, int selector";
       for (size_t i = 0; i < m.params.size(); ++i) {
         ctx.out << ", id " << local_sym(m.params[i]);
       }
@@ -3225,7 +3298,7 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
       }
       const std::string mangled = mangle_method(m.name, m.params.size());
       ctx.out << "    vtable_set(" << name << "Class_vtable, selector_intern(\"" << mangled
-              << "\"), " << name << "__" << mangled << ");\n";
+              << "\"), " << method_sym(name, true, mangled) << ");\n";
     }
     if (info->synth_nested_call) {
       ctx.out << "    vtable_set(" << name << "Class_vtable, selector_intern(\"call_o\"), "

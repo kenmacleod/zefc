@@ -162,7 +162,11 @@ foreach case_name : ['test30', 'super', 'test4', 'test6', 'test24', 'test25',
                      'nestedclass4c', 'nestedclass4d',
                      'initializers', 'initializers2', 'initializers3',
                      'statics', 'test7', 'test3b',
-                     'private1d', 'private1e']
+                     'private1d', 'private1e',
+                     'classinfunction3', 'test31', 'testd',
+                     'private2b', 'private3c', 'private3d',
+                     'test45', 'test45b', 'test46',
+                     'biglist', 'gc', 'test12']
   case_zef = meson.project_source_root() / 'test/smoke/zef' / (case_name + '.zef')
   case_gen = custom_target(
     case_name + '_from_zef',
@@ -194,7 +198,7 @@ foreach err_name : ['test10', 'test11', 'test16', 'test17', 'test18', 'test21',
                     'load2', 'load3', 'package11', 'accessors2', 'test28',
                     'private1b',
                     'nestedclass1b', 'nestedclass3', 'nestedclass3c',
-                    'nestedclass4']
+                    'nestedclass4', 'accessors2c', 'private1f', 'test12b']
   test(
     'compiler ' + err_name + ' stderr',
     python3,

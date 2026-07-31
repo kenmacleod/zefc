@@ -1,0 +1,10 @@
+class Foo {
+    private accessible b = 2
+
+    fn
+    {
+    }
+}
+
+println(Foo().b)
+

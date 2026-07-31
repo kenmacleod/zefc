@@ -1,0 +1,15 @@
+class Foo {
+    my next
+    fn (inNext) next = inNext
+    fn next next
+}
+
+my root = 0
+
+my i = 0
+while (i < 100000) {
+    root = Foo(root)
+    i += 1
+}
+
+println("ok")

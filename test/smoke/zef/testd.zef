@@ -1,0 +1,13 @@
+my didCall
+fn println didCall = true
+if (didCall)
+    error("did not expected didCall to be set")
+println("hello")
+if (!didCall)
+    error("expected didCall to be set")
+didCall = false
+if (didCall)
+    error("did not expected didCall to be set")
+..println("world")
+if (didCall)
+    error("did not expected didCall to be set")

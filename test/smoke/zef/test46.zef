@@ -1,0 +1,24 @@
+class Foo {
+    readable x
+
+    fn (inX)
+    {
+        println(inX)
+        x = inX
+    }
+}
+
+class Bar : Foo {
+    readable y
+    
+    fn (inX, inY)
+    {
+        super(inX)
+        y = inY
+    }
+}
+
+fn test Bar(1, 2)
+
+test
+test

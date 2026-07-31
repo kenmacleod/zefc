@@ -1,0 +1,51 @@
+
+    # Class with Object as its superclass
+    class Vector2d {
+        # Object fields. Can only be initialized in the constructor. Always private.
+        my x, y
+    
+        # Constructor
+        fn (inX, inY)
+        {
+            x = inX
+            y = inY
+            # Could optionally call the `super` constructor here, but we don't have to, since Object
+            # has a no-op constructor
+        }
+    
+        # Getters for our fields
+        fn x x
+        fn y y
+    
+        # Intentionally omit setters
+    
+        # Overload the `+` operator
+        fn add(other) Vector2d(x + other.x, y + other.y)
+    
+        fn toString "{" + x.toString + "," + y.toString + "}"
+    
+        # Overload the `==` and `!=` operators
+        fn equal(other) x == other.x && y == other.y
+    }
+    
+    class Vector3d : Vector2d {
+        my z
+    
+        fn (x, y, inZ)
+        {
+            super(x, y)
+            z = inZ
+        }
+    
+        fn z z
+    
+        fn add(other) Vector3d(x + other.x, y + other.y, z + other.z)
+    
+        fn toString "{" + x.toString + "," + y.toString + "," + z.toString + "}"
+    
+        fn equal(other) super.equal(other) && z == other.z
+    }
+    
+    println(Vector3d(1, 2, 3) + Vector3d(4, 5, 6))
+    println(Vector3d(1, 2, 3) == Vector3d(1, 2, 3))
+    println(Vector3d(1, 2, 3) != Vector3d(1, 2, 3))

@@ -1,0 +1,18 @@
+class Foo {
+    readable x, y
+
+    fn (inX, inY)
+    {
+        x = inX
+        y = inY
+    }
+
+    fn toString "Foo(" + x.toString + ", " + y.toString + ")"
+
+    static readable Stuff = Foo(1, 2)
+    static readable Thingy = Foo(3, 4)
+}
+
+println(Foo.Stuff)
+println(Foo.Thingy)
+

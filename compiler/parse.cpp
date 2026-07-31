@@ -101,11 +101,17 @@ Parser::parse_stmt()
     s.expr = parse_block_expr();
     return s;
   }
-  if (check(TokKind::KwClass)) {
+  if (check(TokKind::KwFinal) || check(TokKind::KwClass)) {
+    bool is_final = false;
+    if (check(TokKind::KwFinal)) {
+      next();
+      is_final = true;
+    }
     Stmt s;
     s.kind = Stmt::Kind::Class;
     s.line = line;
     s.class_decl = parse_class();
+    s.class_decl.is_final = is_final;
     return s;
   }
   if (check(TokKind::KwFn)) {
@@ -560,12 +566,18 @@ Parser::parse_block_item()
     item.expr = parse_block_expr();
     return item;
   }
-  // Nested / scope-local class
-  if (check(TokKind::KwClass)) {
+  // Nested / scope-local class (`final class` allowed)
+  if (check(TokKind::KwFinal) || check(TokKind::KwClass)) {
+    bool is_final = false;
+    if (check(TokKind::KwFinal)) {
+      next();
+      is_final = true;
+    }
     BlockItem item;
     item.kind = BlockItem::Kind::Class;
     item.line = line;
     item.nested_class = std::make_unique<ClassDecl>(parse_class());
+    item.nested_class->is_final = is_final;
     return item;
   }
   // Local: my name [= expr]  (comma-lists handled in parse_method_body)

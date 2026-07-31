@@ -1,0 +1,37 @@
+final class Foo {
+    my x, y
+
+    fn (inX, inY)
+    {
+        x = inX
+        y = inY
+    }
+
+    fn stuff(z)
+    {
+        fn (w, a, b)
+        {
+            final class Bar {
+                my a, b
+
+                fn (inA, inB)
+                {
+                    a = inA
+                    b = inB
+                }
+
+                fn thingy x + y + z + w + a + b
+            }
+
+            Bar(a, b)
+        }
+    }
+}
+
+println(Foo(1, 2).stuff(3)(4, 5, 6).thingy)
+
+class Baz : Foo {
+    fn() { }
+}
+
+Baz()
