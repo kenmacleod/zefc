@@ -8,11 +8,12 @@ Transpiles `.zef` → C++ that uses the shared runtime dispatch ABI (`ZEFC_SEND*
 
 ## Status
 
-Compiler suite (`meson test --suite compiler`) covers packages, `load`/`import` scope, inheritance, closures, and more of the smoke goldens.
+Language goldens live under `test/smoke/zef` + `expected/`; run with `meson test --suite compiler`. Dispatch ABI (`patch1`) is `--suite abi`.
 
 ```bash
 ninja -C build compiler/zefc
 build/compiler/zefc path/to/file.zef -o out.cpp
 # link out.cpp with runtime + stdlib bootstrap (see meson custom_target zefc-hello)
 meson test -C build --suite compiler
+meson test -C build --suite abi
 ```

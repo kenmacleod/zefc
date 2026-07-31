@@ -34,3 +34,4 @@ message('object_dispatch=@0@ (ZEFC_OBJECT_DISPATCH=@1@)'.format(object_dispatch,
 subdir('runtime')
 subdir('compiler')
 subdir('test/smoke')
+subdir('test/abi')

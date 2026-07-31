@@ -1,6 +1,6 @@
 # Dispatch and dynamic loading
 
-This document is the contract for ZefC’s Orchard-style dispatch under dynamic package loading. It is the next implementation focus after the smoke harness. Language overview lives in [index.md](index.md).
+This document is the contract for ZefC’s Orchard-style dispatch under dynamic package loading. Language overview lives in [index.md](index.md).
 
 ## Goals
 
@@ -29,17 +29,17 @@ This document is the contract for ZefC’s Orchard-style dispatch under dynamic 
 | `ic` (default) | guard `isa_` + cached callee | Zef-style method IC |
 | `slots` | `isa_->slots[sel]` | `VTable*` handle (no IC) |
 | `flat` | `isa_[sel]` | Plan A: `IsaPtr = zefc_method*`; grow rewrites live `isa_` until `zefc_vtables_seal()` |
-| `site` | sticky `CallSite.callee` | Plan B: fill on first use (optional `call_site_bind` at load); **no isa_ guard** — wrong under polymorphism (e.g. richards). Prefer `ic`/`slots`/`flat` for full smoke |
+| `site` | sticky `CallSite.callee` | Plan B: fill on first use (optional `call_site_bind` at load); **no isa_ guard** — wrong under polymorphism (e.g. richards). Prefer `ic`/`slots`/`flat` for full compiler suite |
 
 ### ScriptBench wall times (matched `-O2`)
 
 Machine: WSL2 x86_64, 2026-07-30. All builds `debugoptimized` (`optimization=2`). Fil-C++ 0.678; ZefC g++ = system g++. Five warm runs; approximate medians. Field IC on in all ZefC columns. Zef has no g++ build.
 
-**What is timed:** ScriptBench smoke cases (`nbody` / `splay` / `richards`) print an explicit **AFTER STARTUP** phase on **stderr** (`zefc-bench: …`) starting immediately after `zefc_vtables_seal()`. That excludes process start, package init, selector intern, and seal itself. It still includes bench setup that is part of the ScriptBench script (e.g. `SplaySetup`). Prefer those lines over whole-process `/usr/bin/time` when comparing dispatch modes. Stdout goldens are unchanged.
+**What is timed:** whole-process wall of the compiler-built `nbody` / `splay` / `richards` executables (init + steady combined). That is enough for dispatch A/B; we no longer split an AFTER STARTUP phase in the harness.
 
-**Future optimization:** seal (closed-world freeze) can move to **build/link time** so the process starts already sealed; today’s runtime `zefc_vtables_seal()` after last load is the stand-in. Do not treat runtime seal cost as inherent to flat/slots.
+**Future optimization:** seal (closed-world freeze) can move to **build/link time** so the process starts already sealed; today’s runtime `zefc_vtables_seal()` after last load is the stand-in when used.
 
-**Fil-C** (`-Dobject_dispatch=…`; tables below are older **full-process** walls — re-measure with `zefc-bench:` AFTER STARTUP lines for A/B):
+**Fil-C** (`-Dobject_dispatch=…`; full-process walls):
 
 | Bench | ic | slots | flat | site | Zef |
 |-------|----|-------|------|------|-----|
@@ -47,7 +47,7 @@ Machine: WSL2 x86_64, 2026-07-30. All builds `debugoptimized` (`optimization=2`)
 | richards | ~0.04s | ~0.04s | ~0.03s | *(crash — poly)* | ~0.19s |
 | splay | ~1.4s | ~0.94s | ~1.0s | ~1.4s | ~2.6s |
 
-**g++** (same ZefC code; unsafe / no Fil-C checks; same caveat — full-process):
+**g++** (same ZefC code; unsafe / no Fil-C checks):
 
 | Bench | ic | slots | flat | site |
 |-------|----|-------|------|------|
@@ -57,9 +57,9 @@ Machine: WSL2 x86_64, 2026-07-30. All builds `debugoptimized` (`optimization=2`)
 
 **Takeaways:** `ic` vs `slots` vs `site` (where correct) stay in the noise on these benches. Unsealed `flat` paid a live-object map on every `zefc_set_isa` (splay ~3.9s Fil-C / ~0.67s g++). After `zefc_vtables_seal()`, flat init is just `isa_ = vt->slots` (class `slots→VTable*` map is create/grow only). Expect flat ≈ slots on post-seal walls; splay is field-IC / alloc dominated so the one-load send win stays noise. `site` is invalid under polymorphism (`richards`). Fil-C vs g++ remains ~5–10× on the same dispatch model. ZefC Fil-C vs Zef is still mostly AOT vs interpret.
 
-**Seal:** `zefc_vtables_seal()` marks the process closed-world: no new selectors / vtable grows; flat drops `live_objects` and never re-registers instances. Call after the last package load / last selector intern — analogous to Obj-C after dyld settles. ScriptBench seals once setup finishes, then reports AFTER STARTUP time.
+**Seal:** `zefc_vtables_seal()` marks the process closed-world: no new selectors / vtable grows; flat drops `live_objects` and never re-registers instances. Call after the last package load / last selector intern — analogous to Obj-C after dyld settles.
 
-ScriptBench smoke (`nbody`, `splay`, `richards`) exercises this stack; see [test/smoke/README.md](../test/smoke/README.md).
+ScriptBench cases (`nbody`, `splay`, `richards`) run via `--suite compiler`; see [test/smoke/README.md](../test/smoke/README.md).
 
 ## Non-goals (hot path)
 
@@ -67,22 +67,22 @@ ScriptBench smoke (`nbody`, `splay`, `richards`) exercises this stack; see [test
 - String or hash lookup of method names on every send.
 - Rewriting call sites continuously after they have been patched and user code is running.
 
-Global `zefc_slot_*` variables in today’s smoke runtime are **scaffolding only**. New work must move toward the ABI below.
+Global `zefc_slot_*` variables in early scaffolding are obsolete; prefer `ZEFC_SEL_*` / `ZEFC_SITE`. New work must move toward the ABI below.
 
 ## Independent translation units (not blocked)
 
 In Zef, `load("path.zef")` is a **runtime** builtin. Parsing the *caller* only builds a call with a string argument; the callee file is opened, parsed, resolved, and evaluated when that call runs. Compiling or parsing the current file does **not** require parsing the loaded file.
 
-ZefC therefore compiles **each TU independently**. Dynamic loading is only a **runtime** concern (map a compiled module, register selectors, grow vtables, patch call-site immediates, run init). Registry / patching / multi-module smoke are **not** blocked on a ZefC source parser or on compile-on-load.
+ZefC therefore compiles **each TU independently**. Dynamic loading is only a **runtime** concern (map a compiled module, register selectors, grow vtables, patch call-site immediates, run init). Registry / patching / multi-module checks are **not** blocked on a ZefC source parser or on compile-on-load.
 
 ## Two different “load” stories
 
 | Mechanism | Meaning | Blocks next milestone? |
 |-----------|---------|------------------------|
-| **ZefC package load** | Map a **compiled** module (e.g. shared object or registered image), register selectors, grow vtables, patch call sites, then run module init / top-level. | **No** — this is the next work; hand-built modules are enough. |
-| **Zef `load("….zef")` as source** | Interpreter: parse and evaluate source at the call. | **No** for dispatch work. Later: either AOT (`load` resolves to a prebuilt module on a search path) or compile-on-load once the compiler exists. |
+| **ZefC package load** | Map a **compiled** module (e.g. shared object or registered image), register selectors, grow vtables, patch call sites, then run module init / top-level. | **No** — in-process `module_register` / `module_load` and compiler `load` tests cover sequencing. |
+| **Zef `load("….zef")` as source** | Interpreter: parse and evaluate source at the call. | **No** for dispatch work. Later: either AOT (`load` resolves to a prebuilt module on a search path) or compile-on-load. |
 
-Smoke may use hand-built `.so` (or in-process `module_register` / `module_load`) packages to exercise ZefC load before the compiler exists. Faithful Zef `load*.zef` tests that pass a **source** path can wait for AOT packaging or the compiler; they do not gate the dispatch ABI. In-process registration of hand-compiled modules is enough to prove load sequencing and package bindings.
+In-process registration of loadable modules (`test/smoke/generated/loadable_modules.cpp`) plus `--suite abi` (`patch1`) prove load sequencing and vtable growth. Compiler `load*.zef` goldens cover language-facing `load` / `import`.
 
 ## Call-site ABI (steady state)
 
@@ -127,7 +127,7 @@ where `isa_` is a stable `VTable*` (slots array may grow; the handle does not mo
 
 This is the portable step toward instruction-immediate selectors. It removes shared per-send `zefc_slot_*` loads at new sites (each site has its own cell). **Not yet** true `vtable[imm]` in the instruction stream for arbitrary dynamic names; that remains a follow-on (reloc / text patch under Fil-C W^X).
 
-**Closed-world immediates (landed):** well-known mangled names are reserved at process start via `selector_reserve` / `known_selectors_init()` into fixed `ZEFC_SEL_*` enum IDs (`known_selectors.hpp`). Hand-compiled or generated code may pass those **integer literals** into `ZEFC_SEND*`, so the compiler can emit `vtable[imm]` with no cell load. `ZEFC_SITE` remains for late/dynamic names (`patch1`, open-ended modules).
+**Closed-world immediates (landed):** well-known mangled names are reserved at process start via `selector_reserve` / `known_selectors_init()` into fixed `ZEFC_SEL_*` enum IDs (`known_selectors.hpp`). Generated (or ABI-test) code may pass those **integer literals** into `ZEFC_SEND*`, so the compiler can emit `vtable[imm]` with no cell load. `ZEFC_SITE` remains for late/dynamic names (`test/abi/patch1`, open-ended modules).
 
 Compat: shared `zefc_slot_*` globals have been **removed**. Sends use either `ZEFC_SEL_*` literals or `ZEFC_SITE` (lazy-intern into a per-site static cell).
 
@@ -152,7 +152,7 @@ Minimum viable package unit:
 
 ## Scaffolding vs end state
 
-| Today (smoke) | Target |
+| Today | Target |
 |---------------|--------|
 | `ZEFC_SEL_*` literals for known names; `ZEFC_SITE` for dynamic | Same + text/reloc patch for late names under Fil-C W^X |
 | Growable registry + vtable growth | Same |
@@ -163,7 +163,7 @@ Minimum viable package unit:
 1. Growable selector registry with append-only IDs — **done**.
 2. Vtable growth with `doesNotUnderstand` fill — **done**.
 3. Load/init-time patch of call-site cells so a send need not read a **shared** global for the ID — **done** (`ZEFC_SITE` / `patch1`).
-4. Smoke `patch1`: module A then B; B adds a selector; site-based sends resolve — **done**.
+4. ABI `patch1`: module A then B; B adds a selector; site-based sends resolve — **done** (`--suite abi`).
 5. Patch representation documented above — **done**.
 
 Instruction-count verification under Fil-C++ is a follow-on check, not a gate for landing the ABI.
@@ -174,4 +174,4 @@ Instruction-count verification under Fil-C++ is a follow-on check, not a gate fo
 - **First milestone module load:** explicit `module_register` / `module_load` without a separate `.so`.
 - **Closed-world skip:** not implemented; sites still go through the patch path.
 
-Next toward the ideal hot path: reloc/text-imm patch for selectors **not** in the closed-world set; **build-/link-time seal** (today’s runtime `zefc_vtables_seal()` is the stand-in; ScriptBench already times AFTER STARTUP); non-moving slot arena for unsealed `flat` grow; load-time `call_site_bind` coverage for monomorphic `site` sends.
+Next toward the ideal hot path: reloc/text-imm patch for selectors **not** in the closed-world set; **build-/link-time seal** (today’s runtime `zefc_vtables_seal()` is the stand-in); non-moving slot arena for unsealed `flat` grow; load-time `call_site_bind` coverage for monomorphic `site` sends.

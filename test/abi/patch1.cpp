@@ -1,17 +1,14 @@
-// Acceptance case for dispatch ABI step A:
-// Module A then B; B introduces a new selector (vtable growth); sends use
-// ZEFC_SITE patch cells (not shared zefc_slot_* globals).
+// Dispatch ABI: load module A then B; B adds a selector (vtable growth);
+// sends use ZEFC_SITE patch cells (not shared zefc_slot_* globals).
 
 #include "zefc/dispatch.hpp"
 #include "zefc/io.hpp"
 #include "zefc/module.hpp"
 #include "zefc/runtime.hpp"
+#include "zefc/runtime_bootstrap.hpp"
 #include "zefc/string_api.hpp"
-#include "smoke_cases.hpp"
 
 namespace zefc {
-namespace smoke {
-
 namespace {
 
 struct PingPong_ {
@@ -65,14 +62,17 @@ make_obj()
 }
 
 } // namespace
+} // namespace zefc
 
-void
-smoke_patch1()
+int
+main()
 {
+  using namespace zefc;
+  runtime_package_init();
+
   module_register("patch1/a", module_a);
   module_register("patch1/b", module_b);
 
-  // Call-site cells (one each); lazy-intern on first use — not shared globals.
   const int ping_site = ZEFC_SITE("ping_o");
   const int pong_site = ZEFC_SITE("pong_o");
 
@@ -83,7 +83,5 @@ smoke_patch1()
   module_load("patch1/b");
   (void)ZEFC_SEND0(obj, ping_site);
   (void)ZEFC_SEND0(obj, pong_site);
+  return 0;
 }
-
-} // namespace smoke
-} // namespace zefc

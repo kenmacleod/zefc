@@ -46,38 +46,32 @@ More detail: [docs/index.md](docs/index.md), [docs/dispatch-and-loading.md](docs
 
 1. Language vision and high-level docs ([docs/index.md](docs/index.md)).
 2. Meson project, Fil-C++ setup (`tools/setup-build.sh`, native file), minimal shared runtime.
-3. Smoke harness: hand-compiled stand-ins for Zef tests, golden stdout/stderr, mini String/Int/Array runtime ([test/smoke/](test/smoke/)).
+3. Golden corpus + stdlib bootstrap under [test/smoke/](test/smoke/) (`zef/`, `expected/`, mini String/Int/Array).
 4. Dispatch/load design contract: C++-like hot path, load-time immediate patching ([docs/dispatch-and-loading.md](docs/dispatch-and-loading.md)).
-5. **Dispatch ABI** — Growable registry, `VTable` growth, `ZEFC_SITE` / `ZEFC_SEL_*`, NaN-box Double + Int32, field IC + **object_dispatch** (`ic`/`slots`/`flat`/`site`) on `ZEFC_SEND*`, ScriptBench + seal / AFTER STARTUP timing. Perf premise (vtable vs method IC) settled as wash on these benches.
-6. **ZefC compiler (started)** — `compiler/zefc` transpiles a Zef subset to C++ using the same `ZEFC_*` macros (so `-Dobject_dispatch=…` still applies). First milestone: `hello.zef` → golden stdout (`meson test --suite compiler`).
+5. **Dispatch ABI** — Growable registry, `VTable` growth, `ZEFC_SITE` / `ZEFC_SEL_*`, NaN-box Double + Int32, field IC + **object_dispatch** (`ic`/`slots`/`flat`/`site`) on `ZEFC_SEND*`. ScriptBench via compiler (`nbody` / `splay` / `richards`); whole-process timing is fine for A/B.
+6. **ZefC compiler** — `compiler/zefc` transpiles `.zef` to C++ using the same `ZEFC_*` macros (`meson test --suite compiler`).
 7. Broader coverage of the [Zef](https://zef-lang.dev/) test suite via the compiler (packages, and `load` via AOT modules or compile-on-load).
 8. Packaging and distribution of the compiler and of code ZefC emits.
 
-## Quick start (smoke)
+## Quick start
 
 ```bash
-./tools/setup-build.sh          # CXX=fil++ by default
-meson compile -C build
-meson test -C build --suite smoke
-```
-
-See [test/smoke/README.md](test/smoke/README.md).
-
-## Quick start (compiler)
-
-```bash
+./tools/setup-build.sh          # CXX=fil++ by default; or -Duse_filc=false
 meson setup build-gpp -Duse_filc=false -Dobject_dispatch=ic   # or slots|flat|site
-ninja -C build-gpp compiler/zefc compiler/zefc-hello
-build-gpp/compiler/zefc test/smoke/zef/hello.zef -o /tmp/hello.cpp
+meson compile -C build-gpp
 meson test -C build-gpp --suite compiler
+meson test -C build-gpp --suite abi        # ZEFC_SITE / vtable growth (patch1)
+build-gpp/compiler/zefc test/smoke/zef/hello.zef -o /tmp/hello.cpp
 ```
 
 Generated code links the shared runtime; switch dispatch with `-Dobject_dispatch=` at Meson configure (no compiler flag needed beyond that).
 
+Corpus layout: [test/smoke/README.md](test/smoke/README.md).
+
 ## Lineage
 
 | Project | Role |
-|---------|------|
+|--------|------|
 | [Zef](https://zef-lang.dev/) ([GitHub](https://github.com/pizlonator/zef)) | Language definition and semantics |
 | [Orchard-C](https://github.com/kenmacleod/orchard-c) | Inspiration for vtable / selector dispatch patterns |
 | [Fil-C](https://github.com/pizlonator/fil-c/) | Memory-safe C/C++ toolchain (Fil-C++) for ZefC and generated code |

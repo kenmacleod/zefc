@@ -5,15 +5,6 @@ import subprocess
 import sys
 
 
-def unexpected_stderr(text: str) -> str:
-    bad = []
-    for line in text.splitlines(keepends=True):
-        if line.startswith("zefc-bench:"):
-            continue
-        bad.append(line)
-    return "".join(bad)
-
-
 def main() -> int:
     exe = sys.argv[1]
     golden_path = pathlib.Path(sys.argv[2])
@@ -28,9 +19,8 @@ def main() -> int:
         sys.stderr.write("expected:\n%s" % golden)
         sys.stderr.write("got:\n%s" % proc.stdout)
         return 1
-    bad = unexpected_stderr(proc.stderr or "")
-    if bad:
-        sys.stderr.write("unexpected stderr:\n%s" % bad)
+    if proc.stderr:
+        sys.stderr.write("unexpected stderr:\n%s" % proc.stderr)
         return 1
     return 0
 
