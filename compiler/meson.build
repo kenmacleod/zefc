@@ -224,3 +224,29 @@ test(
   ],
   suite : 'compiler',
 )
+
+test7b_zef = meson.project_source_root() / 'test/smoke/zef/test7b.zef'
+test7b_gen = custom_target(
+  'test7b_from_zef',
+  input : test7b_zef,
+  output : 'test7b.gen.cpp',
+  command : [zefc_exe, '@INPUT@', '-o', '@OUTPUT@'],
+)
+test7b_exe = executable(
+  'zefc-test7b',
+  [test7b_gen] + stdlib_sources,
+  dependencies : [runtime_dep],
+  include_directories : compiler_exe_inc,
+  cpp_args : zefc_cpp_args,
+  install : false,
+)
+test(
+  'compiler test7b stderr',
+  python3,
+  args : [
+    meson.project_source_root() / 'test/compiler/check_runtime_error.py',
+    test7b_exe,
+    meson.project_source_root() / 'test/smoke/expected/test7b.stderr',
+  ],
+  suite : 'compiler',
+)

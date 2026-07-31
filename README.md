@@ -1,6 +1,6 @@
 # ZefC
 
-ZefC is a compiler that transpiles the [Zef](https://zef-lang.dev/) language to C++, targeting [Fil-C++](https://github.com/pizlonator/fil-c/) for memory safety and garbage collection. Dispatch uses shared-namespace virtual tables with selector IDs (patterns borrowed from [Orchard-C](https://github.com/kenmacleod/orchard-c); this project does not depend on Zef or Orchard as build dependencies).
+ZefC is a compiler that transpiles the [Zef](https://zef-lang.dev/) language to C++, targeting [Fil-C++](https://github.com/pizlonator/fil-c/) for memory safety and garbage collection. Dispatch uses shared-namespace virtual tables with selector IDs (patterns borrowed from [Orchard-C](https://github.com/kenmacleod/orchard-c)). The build does not link Zef or Orchard; opening those trees to read and port code is welcome (see Lineage).
 
 The end goal is Zef semantics with **C++-like virtual-call cost** on the hot path (~vptr + `vtable[imm]` + call), plus dynamic package loading via load-time selector patching. Vtables alone are not enough for Zef-like ScriptBench speed — see the **performance model** in [docs/dispatch-and-loading.md](docs/dispatch-and-loading.md).
 
@@ -82,4 +82,6 @@ Generated code links the shared runtime; switch dispatch with `-Dobject_dispatch
 | [Orchard-C](https://github.com/kenmacleod/orchard-c) | Inspiration for vtable / selector dispatch patterns |
 | [Fil-C](https://github.com/pizlonator/fil-c/) | Memory-safe C/C++ toolchain (Fil-C++) for ZefC and generated code |
 
-ZefC is a **standalone** project: code and ideas may be borrowed; there is no runtime dependency on those repositories.
+ZefC is a **standalone** build: no compile- or run-time dependency on those repositories. Opening the Zef or Orchard trees to **read and port** grammar, AST decisions, semantics, or tests into this repo is encouraged.
+
+For the front end, prefer a ZefC-owned lexer/parser/AST (suited to C++ codegen) over linking Zef’s interpreter `Node*` graph. Porting rules from Zef’s `parse.cpp` (and related sources) when a golden fails is the intended way to stay aligned — do not invent divergent syntax.
