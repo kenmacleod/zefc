@@ -2,6 +2,31 @@
 
 compiler_inc = include_directories('.')
 
+git = find_program('git', required : false)
+if git.found()
+  git_describe_run = run_command(
+    git, '-C', meson.project_source_root(),
+    'describe', '--tags', '--always', '--dirty',
+    check : false,
+  )
+  if git_describe_run.returncode() == 0
+    zefc_git_describe = git_describe_run.stdout().strip()
+  else
+    zefc_git_describe = 'unknown'
+  endif
+else
+  zefc_git_describe = 'unknown'
+endif
+
+zefc_version_conf = configuration_data()
+zefc_version_conf.set('ZEFC_VERSION', meson.project_version())
+zefc_version_conf.set('ZEFC_GIT_DESCRIBE', zefc_git_describe)
+zefc_version_h = configure_file(
+  input : 'version.hpp.in',
+  output : 'version.hpp',
+  configuration : zefc_version_conf,
+)
+
 zefc_exe = executable(
   'zefc',
   files(
@@ -9,7 +34,7 @@ zefc_exe = executable(
     'lexer.cpp',
     'parse.cpp',
     'codegen.cpp',
-  ),
+  ) + [zefc_version_h],
   include_directories : compiler_inc,
   install : false,
 )
