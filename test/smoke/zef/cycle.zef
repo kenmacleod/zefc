@@ -1,0 +1,17 @@
+class Foo {
+    my f
+    fn { }
+    fn f f
+    fn set_f(value) f = value
+}
+
+my i = 0
+while (i < 1000000) {
+    my x = Foo()
+    my y = Foo()
+    x.f = y
+    y.f = x
+    i += 1
+}
+
+println("ok")

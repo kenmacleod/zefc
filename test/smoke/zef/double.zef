@@ -1,0 +1,17 @@
+my x = 1.
+my y = .5
+my z = 1e1
+println(x)
+println(y)
+println(z)
+println(x + y)
+println(x + z)
+println(y + z)
+println(x + y + z)
+println(x - y)
+println(x - z)
+println(y - z)
+println(x - y - z)
+println(1. / 0.)
+println(-1. / 0.)
+println(0. / 0.)

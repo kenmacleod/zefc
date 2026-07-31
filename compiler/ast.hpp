@@ -44,6 +44,7 @@ struct Method {
   std::vector<std::string> params;
   std::vector<BlockItem> body; // may be empty
   bool is_static = false;
+  bool is_private = false;
   int line = 1;
 };
 

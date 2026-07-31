@@ -280,6 +280,7 @@ Parser::parse_class()
     } else if (check(TokKind::KwFn)) {
       Method m = parse_method();
       m.is_static = is_static;
+      m.is_private = is_private;
       c.methods.push_back(std::move(m));
     } else {
       Token t = peek();

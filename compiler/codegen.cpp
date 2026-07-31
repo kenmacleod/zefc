@@ -112,7 +112,7 @@ struct ClassInfo {
   const ClassDecl* decl = nullptr;
   std::string cpp_name; // C++ symbol prefix (may differ for type-nested classes)
   std::unordered_set<std::string> field_names;
-  std::unordered_set<std::string> private_fields; // private readable/accessible names
+  std::unordered_set<std::string> private_fields; // private readable/accessible / method names
   std::unordered_set<std::string> param_names;
   std::unordered_set<std::string> method_names; // zero-arg instance methods (bare Ident call)
   std::unordered_map<std::string, size_t> methods; // instance method name → arity
@@ -123,6 +123,7 @@ struct ClassInfo {
   bool has_static = false;
   bool has_static_call0 = false; // static fn call with 0 params
   bool synth_nested_call = false; // Foo() forwards to static nested class `call`
+  bool has_instance_ctor = false; // explicit `fn (...)` / `fn { }` constructor
 };
 
 struct FuncInfo {
@@ -1969,6 +1970,12 @@ collect_class_decl(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name, bo
   }
   bool has_static_call_method = false;
   for (const Method& m : c.methods) {
+    if (m.name.empty()) {
+      info.has_instance_ctor = true;
+    }
+    if (m.is_private && !m.name.empty()) {
+      info.private_fields.insert(m.name);
+    }
     if (m.is_static) {
       info.has_static = true;
       if (m.name == "call" && m.params.empty()) {
@@ -2598,7 +2605,7 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
     ctx.out << "static id " << name << "__call_o(id self, int selector);\n";
   }
   if (!has_ctor) {
-    ctx.out << "static id " << name << "__init(id self, int selector);\n";
+    // No synthetic empty constructor (Zef nocons). Still declare __new for call sites.
     ctx.out << "static id " << name << "__new(id, int selector);\n";
   }
   for (const Field& f : c.fields) {
@@ -2759,7 +2766,11 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
     }
   }
   if (!emitted_ctor) {
-    emit_ctor(nullptr);
+    // Zef: class with no constructor cannot be instantiated.
+    ctx.out << "static id\n" << name << "__new(id, int selector)\n{\n";
+    ctx.out << "  (void)selector;\n";
+    ctx.out << "  zefc_error(\"cannot instantiate class with no constructor\");\n";
+    ctx.out << "}\n\n";
   }
   if (info->synth_nested_call) {
     ctx.out << "static id\n" << name << "__call_o(id self, int selector)\n{\n";

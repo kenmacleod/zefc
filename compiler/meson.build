@@ -142,7 +142,7 @@ foreach case_name : ['test30', 'super', 'test4', 'test6', 'test24', 'test25',
                      'test20', 'test5', 'test23', 'test29', 'test27', 'int64',
                      'test14', 'test15', 'test26', 'test2',
                      'test33', 'test19', 'test22', 'test13', 'testb', 'testb2',
-                     'test34', 'test36', 'nocons', 'test8',
+                     'test34', 'test36', 'test8',
                      'test35', 'testb3', 'testb4', 'teste', 'staticcall',
                      'accessors2b', 'private1', 'duplicateparam',
                      'classinfunction', 'classinfunction2', 'test9',
@@ -156,7 +156,7 @@ foreach case_name : ['test30', 'super', 'test4', 'test6', 'test24', 'test25',
                      'test26b', 'test26c', 'test37', 'test38', 'test43', 'test',
                      'test42', 'testc', 'nbody', 'richards', 'splay', 'load1',
                      'load4', 'load5', 'load6', 'load7', 'load8', 'load9',
-                     'load10']
+                     'load10', 'double', 'cycle']
   case_zef = meson.project_source_root() / 'test/smoke/zef' / (case_name + '.zef')
   case_gen = custom_target(
     case_name + '_from_zef',
@@ -185,7 +185,8 @@ foreach case_name : ['test30', 'super', 'test4', 'test6', 'test24', 'test25',
 endforeach
 
 foreach err_name : ['test10', 'test11', 'test16', 'test17', 'test18', 'test21',
-                    'load2', 'load3', 'package11', 'accessors2', 'test28']
+                    'load2', 'load3', 'package11', 'accessors2', 'test28',
+                    'private1b']
   test(
     'compiler ' + err_name + ' stderr',
     python3,
@@ -247,6 +248,32 @@ test(
     meson.project_source_root() / 'test/compiler/check_runtime_error.py',
     test7b_exe,
     meson.project_source_root() / 'test/smoke/expected/test7b.stderr',
+  ],
+  suite : 'compiler',
+)
+
+nocons_zef = meson.project_source_root() / 'test/smoke/zef/nocons.zef'
+nocons_gen = custom_target(
+  'nocons_from_zef',
+  input : nocons_zef,
+  output : 'nocons.gen.cpp',
+  command : [zefc_exe, '@INPUT@', '-o', '@OUTPUT@'],
+)
+nocons_exe = executable(
+  'zefc-nocons',
+  [nocons_gen] + stdlib_sources,
+  dependencies : [runtime_dep],
+  include_directories : compiler_exe_inc,
+  cpp_args : zefc_cpp_args,
+  install : false,
+)
+test(
+  'compiler nocons stderr',
+  python3,
+  args : [
+    meson.project_source_root() / 'test/compiler/check_runtime_error.py',
+    nocons_exe,
+    meson.project_source_root() / 'test/smoke/expected/nocons.stderr',
   ],
   suite : 'compiler',
 )
