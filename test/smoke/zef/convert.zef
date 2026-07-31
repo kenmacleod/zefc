@@ -1,0 +1,2 @@
+println(int(42.24) + 10)
+println(double(50) + 10.)

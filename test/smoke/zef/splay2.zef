@@ -1,0 +1,324 @@
+# Copyright 2009 the V8 project authors. All rights reserved.
+# Copyright (C) 2015 Apple Inc. All rights reserved.
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are
+# met:
+#
+#     * Redistributions of source code must retain the above copyright
+#       notice, this list of conditions and the following disclaimer.
+#     * Redistributions in binary form must reproduce the above
+#       copyright notice, this list of conditions and the following
+#       disclaimer in the documentation and/or other materials provided
+#       with the distribution.
+#     * Neither the name of Google Inc. nor the names of its
+#       contributors may be used to endorse or promote products derived
+#       from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+# A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+# OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+# LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+# DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+# THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+# This benchmark is based on a JavaScript log processing module used
+# by the V8 profiler to generate execution time profiles for runs of
+# JavaScript applications, and it effectively measures how fast the
+# JavaScript engine is at allocating nodes and reclaiming the memory
+# used for old nodes. Because of the way splay trees work, the engine
+# also has to deal with a lot of changes to the large tree object
+# graph.
+
+# Converted to pizlscript by Fil
+
+my SplayTreeSize = 8000
+my SplayTreeModifications = 80
+my SplayTreePayloadDepth = 5
+
+my splayTree
+
+class LeafPayload {
+    my array, string
+
+    fn (inArray, inString)
+    {
+        array = inArray
+        string = inString
+    }
+
+    fn array array
+    fn string string
+}
+
+class InnerPayload {
+    my left, right
+
+    fn (inLeft, inRight)
+    {
+        left = inLeft
+        right = inRight
+    }
+
+    fn left left
+    fn right right
+}
+
+fn GeneratePayloadTree(depth, tag)
+{
+    if (!depth) {
+        LeafPayload([ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 ],
+                    "String for key " + tag.toString + " in leaf node")
+    } else
+        InnerPayload(GeneratePayloadTree(depth - 1, tag), GeneratePayloadTree(depth - 1, tag))
+}
+
+my RandomState = 42
+
+fn GenerateKey
+{
+    RandomState ^= (RandomState << 13) & 0xFFFFFFFF;
+    RandomState ^= RandomState >> 17;
+    RandomState ^= (RandomState << 5) & 0xFFFFFFFF;
+    return RandomState;
+}
+
+fn InsertNewNode
+{
+    my key = GenerateKey
+    while (splayTree.find(key))
+        key = GenerateKey
+    my payload = GeneratePayloadTree(SplayTreePayloadDepth, key)
+    splayTree.insert(key, payload)
+    return key
+}
+
+fn SplaySetup
+{
+    println("Setting up splay tree")
+    splayTree = SplayTree()
+    my i = 0
+    while (i < SplayTreeSize) {
+        InsertNewNode
+        i += 1
+    }
+}
+
+fn SplayTearDown
+{
+    println("Tearing down splay tree")
+    my keys = splayTree.exportKeys
+
+    splayTree = 0
+
+    my length = keys.size
+    if (length != SplayTreeSize)
+        println("Splay tree has wrong size")
+
+    my i = 0
+    while (i < length - 1) {
+        if (keys[i] >= keys[i + 1])
+            println("Splay tree not sorted")
+        i += 1
+    }
+}
+
+fn SplayRun
+{
+    println("Running")
+    my i = 0
+    while (i < SplayTreeModifications) {
+        my key = InsertNewNode
+        my greatest = splayTree.findGreatestLessThan(key)
+        if (!greatest)
+            splayTree.remove(key)
+        else
+            splayTree.remove(greatest.key)
+        i += 1
+    }
+}
+
+class SplayTree {
+    my root
+
+    fn
+    {
+        root = 0
+    }
+
+    fn isEmpty !root
+
+    fn insert(key, value)
+    {
+        if (isEmpty) {
+            root = SplayTreeNode(key, value)
+            return
+        }
+
+        splay(key)
+        if (root.key == key)
+            return
+
+        my node = SplayTreeNode(key, value)
+        if (key > root.key) {
+            node.left = root
+            node.right = root.right
+            root.right = 0
+        } else {
+            node.right = root
+            node.left = root.left
+            root.left = 0
+        }
+        root = node
+    }
+
+    fn remove(key)
+    {
+        if (isEmpty) {
+            error("Key not found (empty tree): " + key.toString)
+            return
+        }
+        splay(key);
+        if (root.key != key) {
+            error("Key not found: " + key.toString)
+            return
+        }
+        my removed = root
+        if (!root.left)
+            root = root.right
+        else {
+            my right = root.right
+            root = root.left
+            splay(key)
+            root.right = right
+        }
+        removed
+    }
+
+    fn find(key)
+    {
+        if (isEmpty)
+            return 0
+        splay(key)
+        if (root.key == key) root else 0
+    }
+
+    fn findMax(opt_startNode)
+    {
+        if (isEmpty)
+            return 0
+        my current = opt_startNode || root
+        while (current.right)
+            current = current.right
+        current
+    }
+
+    fn findGreatestLessThan(key)
+    {
+        if (isEmpty)
+            0
+        splay(key)
+        if (root.key < key)
+            root
+        else if (root.left)
+            findMax(root.left)
+        else
+            0
+    }
+
+    fn exportKeys
+    {
+        my result = []
+        if (!isEmpty)
+            root.traverse(fn (node) result.push(node.key))
+        result
+    }
+
+    fn splay(key)
+    {
+        if (isEmpty)
+            return
+        my dummy, left, right
+        dummy = left = right = SplayTreeNode(0, 0)
+        my current = root
+        while (1) {
+            if (key < current.key) {
+                if (!current.left)
+                    break
+                if (key < current.left.key) {
+                    my tmp = current.left
+                    current.left = tmp.right
+                    tmp.right = current
+                    current = tmp
+                    if (!current.left)
+                        break
+                }
+                right.left = current
+                right = current
+                current = current.left
+            } else if (key > current.key) {
+                if (!current.right)
+                    break
+                if (key > current.right.key) {
+                    my tmp = current.right
+                    current.right = tmp.left
+                    tmp.left = current
+                    current = tmp
+                    if (!current.right)
+                        break
+                }
+                left.right = current
+                left = current
+                current = current.right
+            } else
+                break
+        }
+        left.right = current.left
+        right.left = current.right
+        current.left = dummy.right
+        current.right = dummy.left
+        root = current
+    }
+}
+
+class SplayTreeNode {
+    my key, value, left, right
+
+    fn (inKey, inValue)
+    {
+        key = inKey
+        value = inValue
+    }
+
+    fn key key
+    fn value value
+
+    fn left left
+    fn set_left(value) left = value
+    fn right right
+    fn set_right(value) right = value
+
+    fn traverse(func)
+    {
+        my current = this
+        while (current) {
+            my left = current.left
+            if (left)
+                left.traverse(func)
+            func(current)
+            current = current.right
+        }
+    }
+}
+
+SplaySetup
+my i = 0
+while (i < 32) {
+    SplayRun
+    i += 1
+}
+SplayTearDown

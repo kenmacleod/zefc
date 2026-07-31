@@ -1,0 +1,14 @@
+class Foo {
+    fn { }
+
+    fn thingy
+    {
+        (fn {
+            stuff
+        })()
+    }
+
+    private fn stuff println("Hello")
+}
+
+Foo().thingy

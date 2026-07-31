@@ -186,10 +186,15 @@ struct Ctx {
   std::vector<std::string> env_params;
   // `my` locals (and params) that shadow instance fields for the current method.
   std::unordered_set<std::string> local_vars;
+  // Locals bound to zero-arg lambdas (`fn name { ... }`) — bare Ident calls them.
+  std::unordered_set<std::string> local_fn0;
   // Nested class names in scope → capture field names on the class object.
   std::unordered_map<std::string, std::vector<std::string>> local_classes;
+  std::unordered_map<std::string, const ClassDecl*> local_class_decls;
   std::unordered_set<std::string> local_class_static_init;
   std::unordered_set<std::string> nested_emitted;
+  // Real class whose method contains this lambda (for bare private/static methods).
+  const ClassInfo* lambda_host = nullptr;
   // While emitting a nested-class constructor (class.call):
   std::string nest_capture_type;   // e.g. "WTFClass_"
   std::string nest_capture_self;   // C++ expr for class object
@@ -239,6 +244,8 @@ void emit_bound_nested_class(Ctx& ctx, const std::string& ncpp, const std::strin
 bool try_resolve_enclosing(Ctx& ctx, const std::string& name, const std::string& dst);
 void emit_send(Ctx& ctx, const std::string& recv, const std::string& mangled,
                const std::vector<std::string>& args, const std::string& dst);
+void collect_free_class(const ClassDecl& c, const std::vector<std::string>& env,
+                        std::vector<std::string>& captures);
 
 std::string
 class_cpp(const ClassInfo& info)
@@ -446,7 +453,7 @@ bool
 is_builtin_name(const std::string& name)
 {
   return name == "println" || name == "print" || name == "load" || name == "error" ||
-         name == "String" || name == "Array";
+         name == "String" || name == "Array" || name == "int" || name == "double";
 }
 
 void
@@ -605,12 +612,125 @@ collect_free(const Expr& e, const std::unordered_set<std::string>& locals,
           collect_free(*item.expr, nested_locals, nested_env, nested_caps);
         }
         nested_locals.insert(item.var_name);
+      } else if (item.kind == BlockItem::Kind::Class && item.nested_class) {
+        collect_free_class(*item.nested_class, nested_env, nested_caps);
       } else if (item.expr) {
         collect_free(*item.expr, nested_locals, nested_env, nested_caps);
       }
     }
     for (const std::string& c : nested_caps) {
       add_cap(c);
+    }
+    break;
+  }
+  default:
+    break;
+  }
+}
+
+// If an expression mentions a function-local class, the class object's capture
+// fields must also be in scope (e.g. `fn test Bar(1,2)` needs Bar's captures).
+void
+collect_local_class_caps(const Expr& e, const std::unordered_set<std::string>& locals,
+                         const std::vector<std::string>& env,
+                         const std::unordered_map<std::string, std::vector<std::string>>& local_classes,
+                         std::vector<std::string>& captures)
+{
+  auto add_cap = [&](const std::string& name) {
+    if (locals.count(name)) {
+      return;
+    }
+    bool in_env = false;
+    for (const std::string& p : env) {
+      if (p == name) {
+        in_env = true;
+        break;
+      }
+    }
+    if (!in_env) {
+      return;
+    }
+    for (const std::string& c : captures) {
+      if (c == name) {
+        return;
+      }
+    }
+    captures.push_back(name);
+  };
+  auto add_class = [&](const std::string& name) {
+    auto it = local_classes.find(name);
+    if (it == local_classes.end()) {
+      return;
+    }
+    for (const std::string& cap : it->second) {
+      add_cap(cap);
+    }
+  };
+
+  switch (e.kind) {
+  case Expr::Kind::Ident:
+    add_class(e.text);
+    break;
+  case Expr::Kind::Dot:
+  case Expr::Kind::Unary:
+  case Expr::Kind::Return:
+    if (e.lhs) {
+      collect_local_class_caps(*e.lhs, locals, env, local_classes, captures);
+    }
+    if (e.rhs) {
+      collect_local_class_caps(*e.rhs, locals, env, local_classes, captures);
+    }
+    break;
+  case Expr::Kind::Index:
+  case Expr::Kind::Binary:
+  case Expr::Kind::Assign:
+    if (e.lhs) {
+      collect_local_class_caps(*e.lhs, locals, env, local_classes, captures);
+    }
+    if (e.rhs) {
+      collect_local_class_caps(*e.rhs, locals, env, local_classes, captures);
+    }
+    break;
+  case Expr::Kind::Call:
+  case Expr::Kind::ArrayLit:
+    if (e.lhs) {
+      collect_local_class_caps(*e.lhs, locals, env, local_classes, captures);
+    }
+    for (const auto& a : e.args) {
+      if (a) {
+        collect_local_class_caps(*a, locals, env, local_classes, captures);
+      }
+    }
+    break;
+  case Expr::Kind::While:
+  case Expr::Kind::If:
+  case Expr::Kind::Block:
+    if (e.lhs) {
+      collect_local_class_caps(*e.lhs, locals, env, local_classes, captures);
+    }
+    for (const BlockItem& item : e.body) {
+      if (item.expr) {
+        collect_local_class_caps(*item.expr, locals, env, local_classes, captures);
+      }
+    }
+    for (const BlockItem& item : e.else_body) {
+      if (item.expr) {
+        collect_local_class_caps(*item.expr, locals, env, local_classes, captures);
+      }
+    }
+    break;
+  case Expr::Kind::Lambda: {
+    std::unordered_set<std::string> nested_locals = locals;
+    for (const std::string& p : e.params) {
+      nested_locals.insert(p);
+    }
+    for (const BlockItem& item : e.body) {
+      if (item.expr) {
+        collect_local_class_caps(*item.expr, nested_locals, env, local_classes, captures);
+      }
+      if (item.kind == BlockItem::Kind::VarDecl) {
+        nested_locals.insert(item.var_name);
+      }
     }
     break;
   }
@@ -671,20 +791,43 @@ emit_lambda(Ctx& ctx, const Expr& e, const std::string& dst)
       if (item.kind == BlockItem::Kind::VarDecl) {
         if (item.expr) {
           collect_free(*item.expr, scan_locals, ctx.env_params, captures);
+          collect_local_class_caps(*item.expr, scan_locals, ctx.env_params, ctx.local_classes,
+                                   captures);
         }
         scan_locals.insert(item.var_name);
       } else if (item.kind == BlockItem::Kind::Class && item.nested_class) {
         collect_free_class(*item.nested_class, ctx.env_params, captures);
       } else if (item.expr) {
         collect_free(*item.expr, scan_locals, ctx.env_params, captures);
+        collect_local_class_caps(*item.expr, scan_locals, ctx.env_params, ctx.local_classes,
+                                 captures);
       }
     }
+  }
+
+  const ClassInfo* host = ctx.lambda_host;
+  if (!host && ctx.current_class && ctx.current_class->decl &&
+      ctx.current_class->decl->name.compare(0, 7, "Closure") != 0) {
+    host = ctx.current_class;
+  }
+  if (host) {
+    // Method names are invoked via captured host self, not by-value captures.
+    std::vector<std::string> kept;
+    for (const std::string& n : captures) {
+      if (!host->method_names.count(n) && !host->static_methods0.count(n)) {
+        kept.push_back(n);
+      }
+    }
+    captures.swap(kept);
   }
 
   const int id = ctx.closure_id++;
   const std::string cname = "Closure" + std::to_string(id);
 
   ctx.prelude << "struct " << cname << "_ {\n  IsaPtr isa_;\n";
+  if (host) {
+    ctx.prelude << "  " << kIdType << " zefc_host;\n";
+  }
   for (const std::string& cap : captures) {
     ctx.prelude << "  " << kIdType << " " << cap << ";\n";
   }
@@ -692,7 +835,6 @@ emit_lambda(Ctx& ctx, const Expr& e, const std::string& dst)
   ctx.prelude << "static VTable* " << cname << "_vtable = nullptr;\n";
 
   // Build call method into a temporary Ctx sharing class env for body.
-  std::ostringstream body_out;
   Ctx body_ctx;
   body_ctx.classes = ctx.classes;
   body_ctx.functions = ctx.functions;
@@ -700,6 +842,7 @@ emit_lambda(Ctx& ctx, const Expr& e, const std::string& dst)
   body_ctx.package_cpp = ctx.package_cpp;
   body_ctx.imports = ctx.imports;
   body_ctx.local_classes = ctx.local_classes;
+  body_ctx.local_class_decls = ctx.local_class_decls;
   body_ctx.local_class_static_init = ctx.local_class_static_init;
   body_ctx.nested_emitted = ctx.nested_emitted;
   body_ctx.toplevel_vars = ctx.toplevel_vars;
@@ -708,8 +851,16 @@ emit_lambda(Ctx& ctx, const Expr& e, const std::string& dst)
   body_ctx.source_path = ctx.source_path;
   body_ctx.tmp = ctx.tmp;
   body_ctx.closure_id = ctx.closure_id;
+  body_ctx.lambda_host = host;
+  body_ctx.in_static_method = ctx.in_static_method;
+  body_ctx.local_fn0 = ctx.local_fn0;
   ClassDecl fake;
   fake.name = cname;
+  if (host) {
+    Field hf;
+    hf.name = "zefc_host";
+    fake.fields.push_back(std::move(hf));
+  }
   for (const std::string& cap : captures) {
     Field f;
     f.name = cap;
@@ -717,6 +868,9 @@ emit_lambda(Ctx& ctx, const Expr& e, const std::string& dst)
   }
   ClassInfo fake_info;
   fake_info.decl = &fake;
+  if (host) {
+    fake_info.field_names.insert("zefc_host");
+  }
   for (const std::string& cap : captures) {
     fake_info.field_names.insert(cap);
   }
@@ -745,6 +899,9 @@ emit_lambda(Ctx& ctx, const Expr& e, const std::string& dst)
   ctx.tmp = body_ctx.tmp;
   ctx.closure_id = body_ctx.closure_id;
   ctx.nested_emitted = body_ctx.nested_emitted;
+  ctx.local_classes = body_ctx.local_classes;
+  ctx.local_class_decls = body_ctx.local_class_decls;
+  ctx.local_class_static_init = body_ctx.local_class_static_init;
   ctx.loaded_package_members = body_ctx.loaded_package_members;
   ctx.saw_load = ctx.saw_load || body_ctx.saw_load;
   // Nested closures first, then this call method (call body may reference them).
@@ -761,6 +918,9 @@ emit_lambda(Ctx& ctx, const Expr& e, const std::string& dst)
   ctx.out << "  {\n";
   ctx.out << "    " << cname << "_* _c = alloc<" << cname << "_>();\n";
   ctx.out << "    zefc_set_isa(_c, " << cname << "_vtable);\n";
+  if (host) {
+    ctx.out << "    _c->zefc_host = self;\n";
+  }
   for (const std::string& cap : captures) {
     if (is_field(ctx, cap)) {
       ctx.out << "    _c->" << cap << " = body<" << class_cpp(*ctx.current_class) << "_>(self)->"
@@ -807,8 +967,13 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
       }
     }
     if (e.text == "super") {
-      if (!ctx.current_class || ctx.current_class->decl->parent.empty()) {
+      if (!ctx.current_class) {
         throw std::runtime_error("super outside subclass");
+      }
+      if (ctx.current_class->decl->parent.empty()) {
+        // Implicit Object: bare `super` is a no-op (Zef Object has empty ctor).
+        ctx.out << "  " << dst << " = self;\n";
+        return;
       }
       // Bare `super` → parent zero-arg init on same object.
       const std::string& parent = ctx.current_class->decl->parent;
@@ -818,7 +983,11 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
     }
     // Locals/params shadow fields and zero-arg getters (`my left` vs `fn left`).
     if (ctx.local_vars.count(e.text)) {
-      ctx.out << "  " << dst << " = " << local_sym(e.text) << ";\n";
+      if (ctx.local_fn0.count(e.text)) {
+        emit_send(ctx, local_sym(e.text), mangle_method("call", 0), {}, dst);
+      } else {
+        ctx.out << "  " << dst << " = " << local_sym(e.text) << ";\n";
+      }
       return;
     }
     // Instance-nested class name → class object bound to this outer instance.
@@ -883,11 +1052,23 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
       } else {
         ctx.out << "  " << dst << " = as_id(&g_" << b.cpp << ");\n";
       }
-    } else if (ctx.current_class && ctx.in_static_method &&
-               ctx.current_class->static_methods0.count(e.text) &&
+    } else if (ctx.current_class && ctx.current_class->static_methods0.count(e.text) &&
                !ctx.current_class->param_names.count(e.text)) {
-      // Bare static method name → self.method (class object)
-      emit_send(ctx, "self", mangle_method(e.text, 0), {}, dst);
+      // Bare static method from instance or static context.
+      if (ctx.in_static_method) {
+        emit_send(ctx, "self", mangle_method(e.text, 0), {}, dst);
+      } else {
+        const std::string cpp = class_cpp(*ctx.current_class);
+        emit_send(ctx, "as_id(&g_" + cpp + "Class)", mangle_method(e.text, 0), {}, dst);
+      }
+    } else if (ctx.lambda_host && ctx.lambda_host->static_methods0.count(e.text) &&
+               !(ctx.current_class && ctx.current_class->param_names.count(e.text))) {
+      emit_send(ctx, "body<" + class_cpp(*ctx.current_class) + "_>(self)->zefc_host",
+                mangle_method(e.text, 0), {}, dst);
+    } else if (ctx.lambda_host && ctx.lambda_host->method_names.count(e.text) &&
+               !(ctx.current_class && ctx.current_class->param_names.count(e.text))) {
+      emit_send(ctx, "body<" + class_cpp(*ctx.current_class) + "_>(self)->zefc_host",
+                mangle_method(e.text, 0), {}, dst);
     } else if (ctx.current_class && ctx.current_class->method_names.count(e.text) &&
                !ctx.current_class->param_names.count(e.text)) {
       // Bare method name → self.method (e.g. `fn thingy stuff`)
@@ -1636,8 +1817,13 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
     if (e.lhs && e.lhs->kind == Expr::Kind::Ident) {
       const std::string& callee = e.lhs->text;
       if (callee == "super") {
-        if (!ctx.current_class || ctx.current_class->decl->parent.empty()) {
+        if (!ctx.current_class) {
           throw std::runtime_error("super(...) outside subclass");
+        }
+        if (ctx.current_class->decl->parent.empty()) {
+          // Implicit Object: super(...) is a no-op.
+          ctx.out << "  " << dst << " = self;\n";
+          return;
         }
         const std::string& parent = ctx.current_class->decl->parent;
         ctx.out << "  " << dst << " = " << parent << "__init(self, 0";
@@ -1695,6 +1881,38 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
         } else {
           throw std::runtime_error("Array(...) expects 0 or 1 argument");
         }
+        return;
+      }
+      if (callee == "int") {
+        if (arg_tmps.size() != 1) {
+          throw std::runtime_error("int(...) expects 1 argument");
+        }
+        const std::string& a = arg_tmps[0];
+        ctx.out << "  if (id_is_double(" << a << ")) {\n";
+        ctx.out << "    " << dst << " = Int__from_i64(static_cast<long long>(Double__to_f64(" << a
+                << ")));\n";
+        ctx.out << "  } else if (id_is_int(" << a << ")) {\n";
+        ctx.out << "    " << dst << " = " << a << ";\n";
+        ctx.out << "  } else {\n";
+        ctx.out << "    " << dst << " = Int__from_i64(std::atoll(String__cstr(ZEFC_SEND0(" << a
+                << ", ZEFC_SEL_toString_o))));\n";
+        ctx.out << "  }\n";
+        return;
+      }
+      if (callee == "double") {
+        if (arg_tmps.size() != 1) {
+          throw std::runtime_error("double(...) expects 1 argument");
+        }
+        const std::string& a = arg_tmps[0];
+        ctx.out << "  if (id_is_int(" << a << ")) {\n";
+        ctx.out << "    " << dst << " = Double__from_f64(static_cast<double>(Int__to_i64(" << a
+                << ")));\n";
+        ctx.out << "  } else if (id_is_double(" << a << ")) {\n";
+        ctx.out << "    " << dst << " = " << a << ";\n";
+        ctx.out << "  } else {\n";
+        ctx.out << "    " << dst << " = Double__from_f64(std::atof(String__cstr(ZEFC_SEND0(" << a
+                << ", ZEFC_SEL_toString_o))));\n";
+        ctx.out << "  }\n";
         return;
       }
       if (callee == "error") {
@@ -1825,17 +2043,49 @@ void
 emit_nested_class(Ctx& ctx, const ClassDecl& c, const std::vector<std::string>& captures)
 {
   const std::string& name = c.name;
+  const ClassDecl* parent_decl = nullptr;
+  std::vector<std::string> parent_caps;
+  if (!c.parent.empty()) {
+    auto dit = ctx.local_class_decls.find(c.parent);
+    if (dit != ctx.local_class_decls.end()) {
+      parent_decl = dit->second;
+    }
+    auto cit = ctx.local_classes.find(c.parent);
+    if (cit != ctx.local_classes.end()) {
+      parent_caps = cit->second;
+    }
+  }
+  auto is_parent_cap = [&](const std::string& cap) {
+    for (const std::string& p : parent_caps) {
+      if (p == cap) {
+        return true;
+      }
+    }
+    return false;
+  };
 
-  // Instance + class-object layouts. Captures are stored on both: class object
-  // at allocation, then copied onto the instance so methods can read them as fields.
+  // Instance + class-object layouts. Parent fields/captures first so Parent__init
+  // can treat a subclass instance as a layout-compatible Parent_*.
   ctx.prelude << "struct " << name << "_ {\n  IsaPtr isa_;\n";
+  if (parent_decl) {
+    for (const Field& f : parent_decl->fields) {
+      if (!f.is_static) {
+        ctx.prelude << "  " << kIdType << " " << f.name << ";\n";
+      }
+    }
+    for (const std::string& cap : parent_caps) {
+      ctx.prelude << "  " << kIdType << " " << cap << ";\n";
+    }
+  }
   for (const Field& f : c.fields) {
     if (!f.is_static) {
       ctx.prelude << "  " << kIdType << " " << f.name << ";\n";
     }
   }
   for (const std::string& cap : captures) {
-    // Avoid duplicate members if a capture shares a field name (shouldn't).
+    if (is_parent_cap(cap)) {
+      continue;
+    }
     bool is_decl_field = false;
     for (const Field& f : c.fields) {
       if (!f.is_static && f.name == cap) {
@@ -1846,6 +2096,9 @@ emit_nested_class(Ctx& ctx, const ClassDecl& c, const std::vector<std::string>& 
     if (!is_decl_field) {
       ctx.prelude << "  " << kIdType << " " << cap << ";\n";
     }
+  }
+  if (parent_decl) {
+    ctx.prelude << "  bool zefc_super_inited;\n";
   }
   ctx.prelude << "};\n\n";
   ctx.prelude << "struct " << name << "Class_ {\n  IsaPtr isa_;\n";
@@ -1860,6 +2113,16 @@ emit_nested_class(Ctx& ctx, const ClassDecl& c, const std::vector<std::string>& 
 
   ClassInfo info;
   info.decl = &c;
+  if (parent_decl) {
+    for (const Field& f : parent_decl->fields) {
+      if (!f.is_static) {
+        info.field_names.insert(f.name);
+      }
+    }
+    for (const std::string& cap : parent_caps) {
+      info.field_names.insert(cap);
+    }
+  }
   for (const Field& f : c.fields) {
     if (!f.is_static) {
       info.field_names.insert(f.name);
@@ -1883,12 +2146,17 @@ emit_nested_class(Ctx& ctx, const ClassDecl& c, const std::vector<std::string>& 
     mctx.packages = ctx.packages;
     mctx.imports = ctx.imports;
     mctx.local_classes = ctx.local_classes;
+    mctx.local_class_decls = ctx.local_class_decls;
     mctx.local_class_static_init = ctx.local_class_static_init;
     mctx.source_path = ctx.source_path;
     mctx.tmp = ctx.tmp;
     mctx.closure_id = ctx.closure_id;
     mctx.current_class = &info;
     mctx.env_params = ctx.env_params;
+    // Fields are capturable free names for nested lambdas / classes (test32).
+    for (const std::string& fname : info.field_names) {
+      mctx.env_params.push_back(fname);
+    }
 
     for (const Field& f : c.fields) {
       if (f.is_static) {
@@ -1898,12 +2166,18 @@ emit_nested_class(Ctx& ctx, const ClassDecl& c, const std::vector<std::string>& 
         const std::string g = mangle_getter(f.name);
         mctx.out << "static id\n" << name << "__" << g << "(id self, int selector)\n{\n";
         mctx.out << "  (void)selector;\n";
+        if (parent_decl) {
+          emit_check_super_inited(mctx, name);
+        }
         mctx.out << "  return body<" << name << "_>(self)->" << f.name << ";\n}\n\n";
       }
       if (f.accessible) {
         const std::string s = mangle_setter(f.name);
         mctx.out << "static id\n" << name << "__" << s << "(id self, int selector, id v)\n{\n";
         mctx.out << "  (void)selector;\n";
+        if (parent_decl) {
+          emit_check_super_inited(mctx, name);
+        }
         mctx.out << "  body<" << name << "_>(self)->" << f.name << " = v;\n";
         mctx.out << "  return null_id();\n}\n\n";
       }
@@ -1937,16 +2211,79 @@ emit_nested_class(Ctx& ctx, const ClassDecl& c, const std::vector<std::string>& 
         mctx.out << ", id " << local_sym(m.params[i]);
       }
       mctx.out << ")\n{\n  (void)selector;\n";
+      if (parent_decl) {
+        emit_check_super_inited(mctx, name);
+      }
+      // Snapshot env so nested lambdas/classes can capture params + fields.
+      std::vector<std::string> saved_env = mctx.env_params;
+      mctx.local_vars.clear();
+      for (const std::string& p : m.params) {
+        mctx.env_params.push_back(p);
+        mctx.local_vars.insert(p);
+      }
       const std::string tmp = mctx.fresh("t");
       mctx.out << "  id " << tmp << ";\n";
       mctx.allow_return = true;
       mctx.import_binds = true;
       emit_body(mctx, m.body, tmp, false);
       mctx.allow_return = false;
+      mctx.env_params = saved_env;
       mctx.out << "}\n\n";
     }
 
-    // Class object call = constructor: captures live on class `self`.
+    // Parent accessors / methods not overridden (function-local subclass).
+    if (parent_decl) {
+      std::unordered_set<std::string> overridden;
+      for (const Method& m : c.methods) {
+        if (!m.name.empty() && !m.is_static) {
+          overridden.insert(mangle_method(m.name, m.params.size()));
+        }
+      }
+      for (const Field& f : c.fields) {
+        overridden.insert(mangle_getter(f.name));
+      }
+      for (const Field& f : parent_decl->fields) {
+        if (f.is_static) {
+          continue;
+        }
+        if (f.readable || f.accessible) {
+          const std::string g = mangle_getter(f.name);
+          if (!overridden.count(g)) {
+            mctx.out << "static id\n" << name << "__" << g << "(id self, int selector)\n{\n";
+            emit_check_super_inited(mctx, name);
+            mctx.out << "  return " << c.parent << "__" << g << "(self, selector);\n}\n\n";
+          }
+        }
+        if (f.accessible) {
+          const std::string s = mangle_setter(f.name);
+          mctx.out << "static id\n" << name << "__" << s
+                  << "(id self, int selector, id v)\n{\n";
+          emit_check_super_inited(mctx, name);
+          mctx.out << "  return " << c.parent << "__" << s << "(self, selector, v);\n}\n\n";
+        }
+      }
+      for (const Method& pm : parent_decl->methods) {
+        if (pm.name.empty() || pm.is_static) {
+          continue;
+        }
+        const std::string mangled = mangle_method(pm.name, pm.params.size());
+        if (overridden.count(mangled)) {
+          continue;
+        }
+        mctx.out << "static id\n" << name << "__" << mangled << "(id self, int selector";
+        for (size_t i = 0; i < pm.params.size(); ++i) {
+          mctx.out << ", id a" << i;
+        }
+        mctx.out << ")\n{\n";
+        emit_check_super_inited(mctx, name);
+        mctx.out << "  return " << c.parent << "__" << mangled << "(self, selector";
+        for (size_t i = 0; i < pm.params.size(); ++i) {
+          mctx.out << ", a" << i;
+        }
+        mctx.out << ");\n}\n\n";
+      }
+    }
+
     const Method* ctor = nullptr;
     for (const Method& m : c.methods) {
       if (m.name.empty() && !m.is_static) {
@@ -1954,30 +2291,18 @@ emit_nested_class(Ctx& ctx, const ClassDecl& c, const std::vector<std::string>& 
         break;
       }
     }
-    mctx.out << "static id\n" << name << "Class__call_o(id self, int selector";
+
+    // Name__init: field inits + ctor body (also used by subclass super(...)).
+    mctx.out << "static id\n" << name << "__init(id self, int selector";
     if (ctor) {
       for (size_t i = 0; i < ctor->params.size(); ++i) {
         mctx.out << ", id " << local_sym(ctor->params[i]);
       }
     }
     mctx.out << ")\n{\n  (void)selector;\n";
-    mctx.out << "  ensure_" << name << "();\n";
-    mctx.out << "  id nest_cls = self;\n";
-    mctx.out << "  " << name << "_* self_b = alloc<" << name << "_>();\n";
-    mctx.out << "  self = as_id(self_b);\n";
-    mctx.out << "  zefc_set_isa(self_b, " << name << "_vtable);\n";
-    for (const std::string& cap : captures) {
-      mctx.out << "  body<" << name << "_>(self)->" << cap << " = body<" << name
-               << "Class_>(nest_cls)->" << cap << ";\n";
-    }
-    mctx.nest_capture_type = name + "Class_";
-    mctx.nest_capture_self = "nest_cls";
-    mctx.nest_captures.clear();
-    for (const std::string& cap : captures) {
-      mctx.nest_captures.insert(cap);
-    }
     info.param_names.clear();
     mctx.local_vars.clear();
+    std::vector<std::string> saved_env = mctx.env_params;
     if (ctor) {
       for (const std::string& p : ctor->params) {
         info.param_names.insert(p);
@@ -2004,11 +2329,34 @@ emit_nested_class(Ctx& ctx, const ClassDecl& c, const std::vector<std::string>& 
     } else {
       mctx.out << "  return self;\n";
     }
+    mctx.env_params = saved_env;
     mctx.out << "}\n\n";
 
-    mctx.nest_captures.clear();
-    mctx.nest_capture_type.clear();
-    mctx.nest_capture_self.clear();
+    // Class object call = allocate + copy captures + __init.
+    mctx.out << "static id\n" << name << "Class__call_o(id self, int selector";
+    if (ctor) {
+      for (size_t i = 0; i < ctor->params.size(); ++i) {
+        mctx.out << ", id " << local_sym(ctor->params[i]);
+      }
+    }
+    mctx.out << ")\n{\n  (void)selector;\n";
+    mctx.out << "  ensure_" << name << "();\n";
+    mctx.out << "  id nest_cls = self;\n";
+    mctx.out << "  " << name << "_* self_b = alloc<" << name << "_>();\n";
+    mctx.out << "  self = as_id(self_b);\n";
+    mctx.out << "  zefc_set_isa(self_b, " << name << "_vtable);\n";
+    for (const std::string& cap : captures) {
+      mctx.out << "  body<" << name << "_>(self)->" << cap << " = body<" << name
+               << "Class_>(nest_cls)->" << cap << ";\n";
+    }
+    mctx.out << "  return " << name << "__init(self, selector";
+    if (ctor) {
+      for (const std::string& p : ctor->params) {
+        mctx.out << ", " << local_sym(p);
+      }
+    }
+    mctx.out << ");\n";
+    mctx.out << "}\n\n";
 
     // ensure_Name / ensure_NameClass
     mctx.out << "static void\nensure_" << name << "()\n{\n";
@@ -2033,6 +2381,43 @@ emit_nested_class(Ctx& ctx, const ClassDecl& c, const std::vector<std::string>& 
         mctx.out << "  vtable_set(" << name << "_vtable, selector_intern(\""
                  << mangle_setter(f.name) << "\"), " << name << "__" << mangle_setter(f.name)
                  << ");\n";
+      }
+    }
+    if (parent_decl) {
+      std::unordered_set<std::string> overridden;
+      for (const Method& m : c.methods) {
+        if (!m.name.empty() && !m.is_static) {
+          overridden.insert(mangle_method(m.name, m.params.size()));
+        }
+      }
+      for (const Field& f : c.fields) {
+        overridden.insert(mangle_getter(f.name));
+      }
+      for (const Field& f : parent_decl->fields) {
+        if (f.is_static) {
+          continue;
+        }
+        if ((f.readable || f.accessible) && !overridden.count(mangle_getter(f.name))) {
+          mctx.out << "  vtable_set(" << name << "_vtable, selector_intern(\""
+                   << mangle_getter(f.name) << "\"), " << name << "__" << mangle_getter(f.name)
+                   << ");\n";
+        }
+        if (f.accessible) {
+          mctx.out << "  vtable_set(" << name << "_vtable, selector_intern(\""
+                   << mangle_setter(f.name) << "\"), " << name << "__" << mangle_setter(f.name)
+                   << ");\n";
+        }
+      }
+      for (const Method& pm : parent_decl->methods) {
+        if (pm.name.empty() || pm.is_static) {
+          continue;
+        }
+        const std::string mangled = mangle_method(pm.name, pm.params.size());
+        if (overridden.count(mangled)) {
+          continue;
+        }
+        mctx.out << "  vtable_set(" << name << "_vtable, selector_intern(\"" << mangled
+                 << "\"), " << name << "__" << mangled << ");\n";
       }
     }
     for (const Method& m : c.methods) {
@@ -2076,6 +2461,22 @@ emit_block_item(Ctx& ctx, const BlockItem& item, const std::string* result_dst)
     const ClassDecl& c = *item.nested_class;
     std::vector<std::string> captures;
     collect_free_class(c, ctx.env_params, captures);
+    // Subclass class-objects need the parent's free-var captures too (layout prefix).
+    if (!c.parent.empty() && ctx.local_classes.count(c.parent)) {
+      for (const std::string& cap : ctx.local_classes[c.parent]) {
+        bool found = false;
+        for (const std::string& existing : captures) {
+          if (existing == cap) {
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          captures.push_back(cap);
+        }
+      }
+    }
+    ctx.local_class_decls[c.name] = &c;
     if (!ctx.nested_emitted.count(c.name)) {
       emit_nested_class(ctx, c, captures);
       ctx.nested_emitted.insert(c.name);
@@ -2110,8 +2511,14 @@ emit_block_item(Ctx& ctx, const BlockItem& item, const std::string* result_dst)
     if (item.expr) {
       ctx.out << ";\n";
       emit_expr_top(ctx, *item.expr, local_sym(item.var_name));
+      if (item.expr->kind == Expr::Kind::Lambda && item.expr->params.empty()) {
+        ctx.local_fn0.insert(item.var_name);
+      } else {
+        ctx.local_fn0.erase(item.var_name);
+      }
     } else {
       ctx.out << " = null_id();\n";
+      ctx.local_fn0.erase(item.var_name);
     }
     ctx.env_params.push_back(item.var_name);
     ctx.local_vars.insert(item.var_name);
@@ -3370,7 +3777,8 @@ codegen_cpp(const Program& program, const std::string& source_path)
   ctx.out << "#include \"zefc/runtime.hpp\"\n";
   ctx.out << "#include \"zefc/runtime_bootstrap.hpp\"\n";
   ctx.out << "#include \"zefc/string_api.hpp\"\n\n";
-  ctx.out << "#include <cstddef>\n\n";
+  ctx.out << "#include <cstddef>\n";
+  ctx.out << "#include <cstdlib>\n\n";
   ctx.out << "using namespace zefc;\n\n";
   ctx.out << "namespace {\n\n";
 

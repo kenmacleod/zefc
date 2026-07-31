@@ -305,6 +305,11 @@ void package_register(const char* name)
 static void
 write_value(id value)
 {
+  if (!value) {
+    // Zef prints null as 0 (same as int zero / falsy).
+    std::fputs("0", stdout);
+    return;
+  }
   const id as_string = ZEFC_SEND0(value, ZEFC_SEL_toString_o);
   std::fputs(String__cstr(as_string), stdout);
 }

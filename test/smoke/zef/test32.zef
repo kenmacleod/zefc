@@ -1,0 +1,30 @@
+my a = 42
+fn foo(b)
+{
+    my c = 666
+    class Bar {
+        my d
+        fn (inD) d = inD
+        fn baz(e)
+        {
+            my f = 1410
+            fn stuff(g)
+            {
+                my h = 67
+                class Thingy {
+                    my i
+                    fn (inI) i = inI
+                    fn blah(j)
+                    {
+                        a + b + c + d + e + f + g + h + i + j
+                    }
+                }
+                return Thingy(g * 42)
+            }
+            return stuff(e * 666)
+        }
+    }
+    return Bar(b * 1410)
+}
+println(foo(1).baz(2).blah(3))
+

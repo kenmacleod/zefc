@@ -1,0 +1,34 @@
+class Foo {
+    readable x, y
+
+    fn (inX, inY)
+    {
+        x = inX
+        y = inY
+    }
+
+    fn toString "Foo(" + x.toString + ", " + y.toString + ")"
+
+    fn thingy(d)
+    {
+        if (d == 0)
+            Stuff
+        else if (d == 1)
+            Thingy
+        else
+            null
+    }
+
+    static readable Stuff = Foo(1, 2)
+    static readable Thingy = Foo(3, 4)
+}
+
+fn stuff(f, d) f.thingy(d)
+fn wat(d) stuff(Foo(42, 666), d)
+
+println(wat(0))
+println(wat(1))
+println(wat(2))
+println(wat(0))
+println(wat(1))
+println(wat(2))
