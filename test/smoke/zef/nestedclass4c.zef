@@ -1,0 +1,23 @@
+class Foo {
+    static my f = 42
+
+    static fn set(value) f = value
+
+    static class Bar {
+        readable g
+
+        fn ()
+        {
+            println("Here")
+            g = f
+            println("There")
+        }
+
+        fn h f + g
+    }
+}
+
+my p = Foo.Bar()
+Foo.set(666)
+println(p.g)
+println(p.h)

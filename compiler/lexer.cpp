@@ -117,6 +117,8 @@ Lexer::lex_one()
       t.kind = TokKind::KwStatic;
     } else if (id == "private") {
       t.kind = TokKind::KwPrivate;
+    } else if (id == "final") {
+      t.kind = TokKind::KwFinal;
     } else if (id == "while") {
       t.kind = TokKind::KwWhile;
     } else if (id == "if") {

@@ -1,0 +1,6 @@
+class Foo {
+    fn { }
+    fn thingy(o) o.stuff
+    private fn stuff println("Hello")
+}
+Foo().thingy(Foo())

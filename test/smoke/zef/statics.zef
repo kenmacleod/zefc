@@ -1,0 +1,13 @@
+class Foo {
+    static my x
+
+    static fn x x
+
+    static fn
+    {
+        println("hello")
+        x = 42
+    }
+}
+
+println(Foo.x)

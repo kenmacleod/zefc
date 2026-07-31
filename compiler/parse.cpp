@@ -227,28 +227,36 @@ Parser::parse_class()
   while (!check(TokKind::RBrace) && !check(TokKind::Eof)) {
     bool is_static = false;
     bool is_private = false;
-    if (check(TokKind::KwStatic)) {
-      next();
-      is_static = true;
-    }
-    if (check(TokKind::KwPrivate)) {
-      next();
-      is_private = true;
-    }
-    // Allow `private static` / `static private` either order.
-    if (!is_static && check(TokKind::KwStatic)) {
-      next();
-      is_static = true;
-    }
-    if (!is_private && check(TokKind::KwPrivate)) {
-      next();
-      is_private = true;
+    bool is_final = false;
+    // Allow `private` / `static` / `final` in any order before a member.
+    for (;;) {
+      if (!is_static && check(TokKind::KwStatic)) {
+        next();
+        is_static = true;
+        continue;
+      }
+      if (!is_private && check(TokKind::KwPrivate)) {
+        next();
+        is_private = true;
+        continue;
+      }
+      if (!is_final && check(TokKind::KwFinal)) {
+        next();
+        is_final = true;
+        continue;
+      }
+      break;
     }
     if (check(TokKind::KwClass)) {
       ClassDecl::Nested nc;
       nc.is_static = is_static;
+      nc.is_private = is_private;
       nc.decl = std::make_unique<ClassDecl>(parse_class());
+      nc.decl->is_final = is_final;
       c.nested.push_back(std::move(nc));
+    } else if (is_final) {
+      throw std::runtime_error("final only applies to nested classes at line " +
+                               std::to_string(peek().line));
     } else if (check(TokKind::KwReadable) || check(TokKind::KwAccessible) || check(TokKind::KwMy)) {
       const bool is_my = check(TokKind::KwMy);
       const bool is_acc = check(TokKind::KwAccessible);

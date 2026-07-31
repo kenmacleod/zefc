@@ -119,11 +119,17 @@ struct ClassInfo {
   std::unordered_set<std::string> static_methods0; // zero-arg static methods
   // Type-nested: source name → nested class cpp_name
   std::unordered_map<std::string, std::string> nested_static;
-  std::unordered_set<std::string> nested_instance;
+  std::unordered_map<std::string, std::string> nested_instance;
   bool has_static = false;
   bool has_static_call0 = false; // static fn call with 0 params
   bool synth_nested_call = false; // Foo() forwards to static nested class `call`
   bool has_instance_ctor = false; // explicit `fn (...)` / `fn { }` constructor
+  // Enclosing type-nested class (Foo_Bar → Foo). Empty if top-level / fn-local.
+  std::string enclosing_cpp;
+  bool nest_is_static = false;
+  bool needs_outer = false;      // instance-nested: live outer instance pointer
+  bool has_outer_field = false;  // emit zefc_outer on this layout (not inherited)
+  bool is_type_nested = false;   // needs Class object + Class__call_o
 };
 
 struct FuncInfo {
@@ -217,8 +223,14 @@ void emit_block_item(Ctx& ctx, const BlockItem& item, const std::string* result_
 void emit_nested_class(Ctx& ctx, const ClassDecl& c, const std::vector<std::string>& captures);
 void emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name);
 void collect_class_decl(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name, bool top_level);
+void resolve_nested_parents(ClassDecl& c, const std::string& cpp_name);
 void collect_package_decl(Ctx& ctx, const PackageDecl& p, const std::string& path);
 void emit_package(Ctx& ctx, const PackageInfo& pkg);
+void emit_bound_nested_class(Ctx& ctx, const std::string& ncpp, const std::string& outer_self,
+                             const std::string& dst);
+bool try_resolve_enclosing(Ctx& ctx, const std::string& name, const std::string& dst);
+void emit_send(Ctx& ctx, const std::string& recv, const std::string& mangled,
+               const std::vector<std::string>& args, const std::string& dst);
 
 std::string
 class_cpp(const ClassInfo& info)
@@ -237,6 +249,62 @@ is_field(const Ctx& ctx, const std::string& name)
     return false;
   }
   return ctx.current_class->field_names.count(name);
+}
+
+void
+emit_bound_nested_class(Ctx& ctx, const std::string& ncpp, const std::string& outer_self,
+                        const std::string& dst)
+{
+  ctx.out << "  {\n";
+  ctx.out << "    ensure_" << ncpp << "();\n";
+  ctx.out << "    " << ncpp << "Class_* _cls = alloc<" << ncpp << "Class_>();\n";
+  ctx.out << "    zefc_set_isa(_cls, " << ncpp << "Class_vtable);\n";
+  ctx.out << "    _cls->zefc_outer = " << outer_self << ";\n";
+  ctx.out << "    " << dst << " = as_id(_cls);\n";
+  ctx.out << "  }\n";
+}
+
+bool
+try_resolve_enclosing(Ctx& ctx, const std::string& name, const std::string& dst)
+{
+  if (!ctx.current_class || ctx.current_class->enclosing_cpp.empty()) {
+    return false;
+  }
+  const ClassInfo& outer = ctx.classes.at(ctx.current_class->enclosing_cpp);
+  const std::string& ocpp = class_cpp(outer);
+  const std::string& ncpp = class_cpp(*ctx.current_class);
+  if (ctx.current_class->nest_is_static) {
+    for (const Field& f : outer.decl->fields) {
+      if (f.is_static && f.name == name) {
+        ctx.out << "  " << dst << " = g_" << ocpp << "Class." << name << ";\n";
+        return true;
+      }
+    }
+    if (outer.static_methods0.count(name)) {
+      emit_send(ctx, "as_id(&g_" + ocpp + "Class)", mangle_method(name, 0), {}, dst);
+      return true;
+    }
+    // Instance members of the outer are not in scope; Zef reports this when the
+    // method runs (static nested class bodies are still compilable).
+    if (outer.field_names.count(name) || outer.method_names.count(name)) {
+      ctx.out << "  zefc_error(\"cannot resolve get (call with no arguments) named " << name
+              << "\");\n";
+      ctx.out << "  " << dst << " = null_id();\n";
+      return true;
+    }
+    return false;
+  }
+  // Instance-nested: live outer fields / zero-arg methods.
+  if (outer.field_names.count(name) && !outer.nested_instance.count(name)) {
+    ctx.out << "  " << dst << " = body<" << ocpp << "_>(body<" << ncpp
+            << "_>(self)->zefc_outer)->" << name << ";\n";
+    return true;
+  }
+  if (outer.method_names.count(name)) {
+    emit_send(ctx, "body<" + ncpp + "_>(self)->zefc_outer", mangle_method(name, 0), {}, dst);
+    return true;
+  }
+  return false;
 }
 
 // Subclass instances track whether `super`/`super(...)` ran (Zef parent Storage*).
@@ -744,6 +812,26 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
       ctx.out << "  " << dst << " = " << local_sym(e.text) << ";\n";
       return;
     }
+    // Instance-nested class name → class object bound to this outer instance.
+    if (ctx.current_class && ctx.current_class->nested_instance.count(e.text)) {
+      emit_bound_nested_class(ctx, ctx.current_class->nested_instance.at(e.text), "self", dst);
+      return;
+    }
+    // Static field of current class (including from instance methods).
+    if (ctx.current_class && ctx.current_class->decl) {
+      bool static_field = false;
+      for (const Field& f : ctx.current_class->decl->fields) {
+        if (f.is_static && f.name == e.text) {
+          static_field = true;
+          break;
+        }
+      }
+      if (static_field) {
+        ctx.out << "  " << dst << " = g_" << class_cpp(*ctx.current_class) << "Class." << e.text
+                << ";\n";
+        return;
+      }
+    }
     if (is_field(ctx, e.text)) {
       const std::string& cls = class_cpp(*ctx.current_class);
       ctx.out << "  " << dst << " = body<" << cls << "_>(self)->" << e.text << ";\n";
@@ -794,6 +882,8 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
     } else if (ctx.functions.count(e.text) && ctx.functions[e.text].arity == 0) {
       // Bare zero-arg function name → call (println(foo), property getters).
       ctx.out << "  " << dst << " = fn_" << e.text << "();\n";
+    } else if (try_resolve_enclosing(ctx, e.text, dst)) {
+      return;
     } else {
       bool in_env = false;
       for (const std::string& p : ctx.env_params) {
@@ -964,6 +1054,10 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
       const std::string& cls = e.lhs->text;
       const ClassInfo& ci = ctx.classes[cls];
       const std::string cpp = class_cpp(ci);
+      ctx.out << "  ensure_" << cpp << "();\n";
+      if (ci.nested_instance.count(e.text)) {
+        throw std::runtime_error("no such method: " + e.text);
+      }
       if (ci.static_methods0.count(e.text)) {
         ctx.out << "  " << dst << " = " << cpp << "__" << mangle_method(e.text, 0)
                 << "(as_id(&g_" << cpp << "Class), " << sel_expr(mangle_method(e.text, 0))
@@ -1227,6 +1321,10 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
       } else {
         throw std::runtime_error(e.text + " target must be an identifier, field, or index");
       }
+      // Uninitialized / null behaves as 0 for numeric RMW (Zef `my g` then `g += 1`).
+      if (plus_eq || minus_eq || star_eq || e.text == "^=" || e.text == "&=" || e.text == "|=") {
+        ctx.out << "  if (!" << cur << ") {\n    " << cur << " = Int__from_i64(0);\n  }\n";
+      }
       emit_expr(ctx, *e.rhs, other);
       if (plus_eq) {
         ctx.out << "  " << rhs << " = ZEFC_SEND1(" << cur << ", ZEFC_SEL_add_o, " << other
@@ -1281,6 +1379,21 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
       throw std::runtime_error("assignment target must be an identifier or field");
     }
     const std::string& name = e.lhs->text;
+    if (ctx.current_class && ctx.current_class->decl) {
+      bool static_field = false;
+      for (const Field& f : ctx.current_class->decl->fields) {
+        if (f.is_static && f.name == name) {
+          static_field = true;
+          break;
+        }
+      }
+      if (static_field) {
+        ctx.out << "  g_" << class_cpp(*ctx.current_class) << "Class." << name << " = " << rhs
+                << ";\n";
+        ctx.out << "  " << dst << " = " << rhs << ";\n";
+        return;
+      }
+    }
     if (is_field(ctx, name)) {
       const std::string& cls = class_cpp(*ctx.current_class);
       ctx.out << "  body<" << cls << "_>(self)->" << name << " = " << rhs << ";\n";
@@ -1341,6 +1454,7 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
           const ClassInfo& ci = ctx.classes[callee];
           const std::string cpp = class_cpp(ci);
           if (arg_tmps.empty() && ci.has_static_call0) {
+            ctx.out << "  ensure_" << cpp << "();\n";
             ctx.out << "  " << dst << " = " << cpp << "__call_o(as_id(&g_" << cpp
                     << "Class), " << sel_expr("call_o") << ");\n";
           } else {
@@ -1371,18 +1485,31 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
         ctx.out << ");\n";
         return;
       }
-      // ClassName.member(args): static nested class / field → apply call, or static method
+      // ClassName.member(args): static method, or nested static class / field → call_o
       if (e.lhs->lhs && e.lhs->lhs->kind == Expr::Kind::Ident &&
           ctx.classes.count(e.lhs->lhs->text)) {
         const ClassInfo& ci = ctx.classes[e.lhs->lhs->text];
         const std::string cpp = class_cpp(ci);
-        if (ci.static_methods0.count(e.lhs->text) && arg_tmps.empty()) {
-          ctx.out << "  " << dst << " = " << cpp << "__" << mangle_method(e.lhs->text, 0)
-                  << "(as_id(&g_" << cpp << "Class), " << sel_expr(mangle_method(e.lhs->text, 0))
-                  << ");\n";
-          return;
+        if (ci.nested_instance.count(e.lhs->text)) {
+          throw std::runtime_error("no such method: " + e.lhs->text);
+        }
+        if (ci.decl) {
+          for (const Method& m : ci.decl->methods) {
+            if (m.is_static && m.name == e.lhs->text && m.params.size() == arg_tmps.size()) {
+              ctx.out << "  ensure_" << cpp << "();\n";
+              ctx.out << "  " << dst << " = " << cpp << "__"
+                      << mangle_method(e.lhs->text, arg_tmps.size()) << "(as_id(&g_" << cpp
+                      << "Class), " << sel_expr(mangle_method(e.lhs->text, arg_tmps.size()));
+              for (const std::string& a : arg_tmps) {
+                ctx.out << ", " << a;
+              }
+              ctx.out << ");\n";
+              return;
+            }
+          }
         }
         const std::string recv = ctx.fresh("t");
+        ctx.out << "  ensure_" << cpp << "();\n";
         ctx.out << "  id " << recv << " = g_" << cpp << "Class." << e.lhs->text << ";\n";
         emit_send(ctx, recv, "call_o", arg_tmps, dst);
         return;
@@ -1428,6 +1555,13 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
       const std::string recv = ctx.fresh("t");
       ctx.out << "  id " << recv << ";\n";
       emit_expr(ctx, *e.lhs->lhs, recv);
+      // Static nested class is not an instance member (o.Bar when Bar is static).
+      for (const auto& kv : ctx.classes) {
+        if (kv.second.nested_static.count(e.lhs->text) &&
+            !kv.second.nested_instance.count(e.lhs->text)) {
+          throw std::runtime_error("no such method: " + e.lhs->text);
+        }
+      }
       // Nested instance class: recv.Bar() → get Bar then call_o (not zero-arg method Bar).
       bool treat_as_get_call = false;
       for (const auto& kv : ctx.classes) {
@@ -1444,6 +1578,7 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
         }
       }
       if (treat_as_get_call) {
+        check_private_member_access(ctx, e.lhs->text);
         const std::string prop = ctx.fresh("t");
         ctx.out << "  id " << prop << ";\n";
         emit_send(ctx, recv, mangle_method(e.lhs->text, 0), {}, prop);
@@ -1571,6 +1706,7 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
                                    : ctx.imports[callee].cpp;
         const ClassInfo& ci = ctx.classes.at(cpp);
         if (arg_tmps.empty() && ci.has_static_call0) {
+          ctx.out << "  ensure_" << cpp << "();\n";
           ctx.out << "  " << dst << " = " << cpp << "__call_o(as_id(&g_" << cpp
                   << "Class), " << sel_expr("call_o") << ");\n";
         } else {
@@ -1593,6 +1729,7 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
         const std::string cpp = class_cpp(ci);
         // Class() with static call and no ctor args → invoke class.call (Zef staticcall).
         if (arg_tmps.empty() && ci.has_static_call0) {
+          ctx.out << "  ensure_" << cpp << "();\n";
           ctx.out << "  " << dst << " = " << cpp << "__call_o(as_id(&g_" << cpp
                   << "Class), " << sel_expr("call_o") << ");\n";
         } else {
@@ -1970,7 +2107,7 @@ collect_class_decl(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name, bo
   }
   bool has_static_call_method = false;
   for (const Method& m : c.methods) {
-    if (m.name.empty()) {
+    if (m.name.empty() && !m.is_static) {
       info.has_instance_ctor = true;
     }
     if (m.is_private && !m.name.empty()) {
@@ -2004,14 +2141,41 @@ collect_class_decl(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name, bo
         }
       }
     } else {
-      info.nested_instance.insert(n.decl->name);
+      info.nested_instance[n.decl->name] = ncpp;
       info.field_names.insert(n.decl->name);
+      if (n.is_private) {
+        info.private_fields.insert(n.decl->name);
+      }
     }
     collect_class_decl(ctx, *n.decl, ncpp, false);
+    ClassInfo& ni = ctx.classes[ncpp];
+    ni.enclosing_cpp = cpp_name;
+    ni.nest_is_static = n.is_static;
+    ni.needs_outer = !n.is_static;
+    ni.is_type_nested = true;
+    ni.has_static = true; // Class object for Foo.Bar / o.Bar()
   }
   ctx.classes[cpp_name] = info;
   if (top_level) {
     ctx.classes[c.name] = ctx.classes[cpp_name];
+  }
+}
+
+void
+resolve_nested_parents(ClassDecl& c, const std::string& cpp_name)
+{
+  std::unordered_map<std::string, std::string> nest;
+  for (ClassDecl::Nested& n : c.nested) {
+    nest[n.decl->name] = cpp_name + "_" + n.decl->name;
+  }
+  for (ClassDecl::Nested& n : c.nested) {
+    if (!n.decl->parent.empty()) {
+      auto it = nest.find(n.decl->parent);
+      if (it != nest.end()) {
+        n.decl->parent = it->second;
+      }
+    }
+    resolve_nested_parents(*n.decl, nest[n.decl->name]);
   }
 }
 
@@ -2042,6 +2206,7 @@ collect_package_decl(Ctx& ctx, const PackageDecl& p, const std::string& path)
   for (const auto& c : p.classes) {
     const std::string ccpp = path + "_" + c->name;
     if (!info.classes.count(c->name)) {
+      resolve_nested_parents(const_cast<ClassDecl&>(*c), ccpp);
       collect_class_decl(ctx, *c, ccpp, false);
       // Package members need a class object even without static methods (foo.Thingy).
       ctx.classes[ccpp].has_static = true;
@@ -2150,6 +2315,7 @@ collect_classes(Ctx& ctx, const Program& program)
     if (s.kind != Stmt::Kind::Class) {
       continue;
     }
+    resolve_nested_parents(const_cast<ClassDecl&>(s.class_decl), s.class_decl.name);
     collect_class_decl(ctx, s.class_decl, s.class_decl.name, true);
   }
   // Second pass: merge parent field names (reject cycles first).
@@ -2164,13 +2330,40 @@ collect_classes(Ctx& ctx, const Program& program)
       if (it == ctx.classes.end()) {
         break;
       }
+      if (it->second.decl->is_final) {
+        throw std::runtime_error("cannot subclass final class");
+      }
       for (const Field& f : it->second.decl->fields) {
         if (!f.is_static) {
           kv.second.field_names.insert(f.name);
         }
       }
+      for (const auto& nk : it->second.nested_instance) {
+        kv.second.nested_instance.insert(nk);
+        kv.second.field_names.insert(nk.first);
+      }
       p = it->second.decl->parent;
     }
+  }
+  // Instance-nested outer pointer: only on the nest root layout (not subclasses).
+  for (auto& kv : ctx.classes) {
+    if (!kv.second.needs_outer) {
+      continue;
+    }
+    bool parent_outer = false;
+    std::string p = kv.second.decl->parent;
+    while (!p.empty()) {
+      auto it = ctx.classes.find(p);
+      if (it == ctx.classes.end()) {
+        break;
+      }
+      if (it->second.needs_outer) {
+        parent_outer = true;
+        break;
+      }
+      p = it->second.decl->parent;
+    }
+    kv.second.has_outer_field = !parent_outer;
   }
 }
 
@@ -2495,16 +2688,20 @@ emit_accessor_methods(Ctx& ctx, const ClassDecl& c, const std::string& name)
     }
   }
   for (const ClassDecl::Nested& n : c.nested) {
-    if (n.is_static) {
+    if (n.is_static || n.is_private) {
       continue;
     }
     const std::string g = mangle_getter(n.decl->name);
+    const std::string ncpp = name + "_" + n.decl->name;
     ctx.out << "static id\n" << name << "__" << g << "(id self, int selector)\n{\n";
     ctx.out << "  (void)selector;\n";
     if (need_super) {
       emit_check_super_inited(ctx, name);
     }
-    ctx.out << "  return body<" << name << "_>(self)->" << n.decl->name << ";\n}\n\n";
+    // Bound class object with live outer (not the global Class singleton).
+    ctx.out << "  id _bound;\n";
+    emit_bound_nested_class(ctx, ncpp, "self", "_bound");
+    ctx.out << "  return _bound;\n}\n\n";
   }
 }
 
@@ -2541,6 +2738,9 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
           ctx.out << "  " << kIdType << " " << n.decl->name << ";\n";
         }
       }
+      if (ctx.classes[*it].has_outer_field) {
+        ctx.out << "  " << kIdType << " zefc_outer;\n";
+      }
     }
   }
   for (const Field& f : c.fields) {
@@ -2553,6 +2753,9 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
       ctx.out << "  " << kIdType << " " << n.decl->name << ";\n";
     }
   }
+  if (info->has_outer_field) {
+    ctx.out << "  " << kIdType << " zefc_outer;\n";
+  }
   if (!c.parent.empty()) {
     // Trailing flag keeps parent field prefix layout-compatible (Foo_ ⊂ Bar_).
     ctx.out << "  bool zefc_super_inited;\n";
@@ -2562,6 +2765,9 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
 
   if (info->has_static) {
     ctx.out << "struct " << name << "Class_ {\n  IsaPtr isa_;\n";
+    if (info->needs_outer) {
+      ctx.out << "  " << kIdType << " zefc_outer;\n";
+    }
     for (const Field& f : c.fields) {
       if (f.is_static) {
         ctx.out << "  " << kIdType << " " << f.name << ";\n";
@@ -2580,7 +2786,7 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
 
   bool has_ctor = false;
   for (const Method& m : c.methods) {
-    if (m.name.empty()) {
+    if (m.name.empty() && !m.is_static) {
       has_ctor = true;
       ctx.out << "static id " << name << "__init(id self, int selector";
       for (size_t i = 0; i < m.params.size(); ++i) {
@@ -2592,6 +2798,8 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
         ctx.out << ", id p" << i;
       }
       ctx.out << ");\n";
+    } else if (m.name.empty() && m.is_static) {
+      ctx.out << "static id " << name << "__static_init(id self, int selector);\n";
     } else {
       const std::string mangled = mangle_method(m.name, m.params.size());
       ctx.out << "static id " << name << "__" << mangled << "(id self, int selector";
@@ -2604,6 +2812,20 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
   if (info->synth_nested_call) {
     ctx.out << "static id " << name << "__call_o(id self, int selector);\n";
   }
+  // Type-nested construction via class() — but `static fn call` owns call_o.
+  if (info->is_type_nested && !info->has_static_call0) {
+    ctx.out << "static id " << name << "Class__call_o(id self, int selector";
+    for (const Method& m : c.methods) {
+      if (m.name.empty()) {
+        for (size_t i = 0; i < m.params.size(); ++i) {
+          ctx.out << ", id p" << i;
+        }
+        break;
+      }
+    }
+    ctx.out << ");\n";
+  }
+  ctx.out << "static void ensure_" << name << "();\n";
   if (!has_ctor) {
     // No synthetic empty constructor (Zef nocons). Still declare __new for call sites.
     ctx.out << "static id " << name << "__new(id, int selector);\n";
@@ -2622,7 +2844,7 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
     }
   }
   for (const ClassDecl::Nested& n : c.nested) {
-    if (!n.is_static) {
+    if (!n.is_static && !n.is_private) {
       ctx.out << "static id " << name << "__" << mangle_getter(n.decl->name)
               << "(id self, int selector);\n";
     }
@@ -2708,6 +2930,7 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
       }
     }
     ctx.out << ")\n{\n  (void)selector;\n";
+    ctx.out << "  ensure_" << name << "();\n";
     ctx.out << "  " << name << "_* self_b = alloc<" << name << "_>();\n";
     ctx.out << "  id self = as_id(self_b);\n";
     ctx.out << "  zefc_set_isa(self_b, " << name << "_vtable);\n";
@@ -2726,6 +2949,25 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
     info->param_names.clear();
     for (const std::string& p : m.params) {
       info->param_names.insert(p);
+    }
+    if (m.name.empty() && m.is_static) {
+      ctx.out << "static id\n" << name << "__static_init(id self, int selector)\n{\n";
+      ctx.out << "  (void)selector;\n";
+      ctx.in_static_method = true;
+      ctx.env_params.clear();
+      ctx.local_vars.clear();
+      const std::string tmp = ctx.fresh("t");
+      ctx.out << "  id " << tmp << ";\n";
+      ctx.allow_return = true;
+      ctx.import_binds = true;
+      emit_body(ctx, m.body, tmp, false);
+      ctx.allow_return = false;
+      ctx.import_binds = false;
+      ctx.env_params.clear();
+      ctx.local_vars.clear();
+      ctx.in_static_method = false;
+      ctx.out << "}\n\n";
+      continue;
     }
     if (m.name.empty()) {
       emit_ctor(&m);
@@ -2779,6 +3021,41 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
     ctx.out << "  return ZEFC_SEND0(nested, " << sel_expr("call_o") << ");\n";
     ctx.out << "}\n\n";
   }
+  if (info->is_type_nested && !info->has_static_call0) {
+    const Method* ctor = nullptr;
+    for (const Method& m : c.methods) {
+      if (m.name.empty()) {
+        ctor = &m;
+        break;
+      }
+    }
+    ctx.out << "static id\n" << name << "Class__call_o(id self, int selector";
+    if (ctor) {
+      for (size_t i = 0; i < ctor->params.size(); ++i) {
+        ctx.out << ", id " << local_sym(ctor->params[i]);
+      }
+    }
+    ctx.out << ")\n{\n  (void)selector;\n";
+    ctx.out << "  ensure_" << name << "();\n";
+    ctx.out << "  " << name << "_* self_b = alloc<" << name << "_>();\n";
+    ctx.out << "  id inst = as_id(self_b);\n";
+    ctx.out << "  zefc_set_isa(self_b, " << name << "_vtable);\n";
+    if (info->needs_outer) {
+      ctx.out << "  self_b->zefc_outer = body<" << name << "Class_>(self)->zefc_outer;\n";
+    }
+    if (ctor || emitted_ctor) {
+      ctx.out << "  return " << name << "__init(inst, selector";
+      if (ctor) {
+        for (const std::string& p : ctor->params) {
+          ctx.out << ", " << local_sym(p);
+        }
+      }
+      ctx.out << ");\n";
+    } else {
+      ctx.out << "  zefc_error(\"cannot instantiate class with no constructor\");\n";
+    }
+    ctx.out << "}\n\n";
+  }
 
   // Inherited parent methods/accessors: wrap with super-inited check (Zef checkConstructed).
   if (!c.parent.empty()) {
@@ -2830,6 +3107,15 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
           ctx.out << "  return " << pcpp << "__" << s << "(self, selector, v);\n}\n\n";
         }
       }
+      for (const ClassDecl::Nested& n : parent.nested) {
+        if (n.is_static || n.is_private) {
+          continue;
+        }
+        const std::string g = mangle_getter(n.decl->name);
+        ctx.out << "static id\n" << name << "__" << g << "(id self, int selector)\n{\n";
+        emit_check_super_inited(ctx, name);
+        ctx.out << "  return " << pcpp << "__" << g << "(self, selector);\n}\n\n";
+      }
     }
   }
 
@@ -2878,6 +3164,14 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
                   << mangle_setter(f.name) << ");\n";
         }
       }
+      for (const ClassDecl::Nested& n : parent.nested) {
+        if (n.is_static || n.is_private) {
+          continue;
+        }
+        ctx.out << "  vtable_set(" << name << "_vtable, selector_intern(\""
+                << mangle_getter(n.decl->name) << "\"), " << name << "__"
+                << mangle_getter(n.decl->name) << ");\n";
+      }
     }
   }
   for (const Field& f : c.fields) {
@@ -2902,12 +3196,10 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
     }
   }
   for (const ClassDecl::Nested& n : c.nested) {
-    if (n.is_static) {
+    if (n.is_static || n.is_private) {
       continue;
     }
-    ctx.out << "  field_register_get(" << name << "_vtable, selector_intern(\""
-            << mangle_getter(n.decl->name) << "\"), offsetof(" << name << "_, " << n.decl->name
-            << "));\n";
+    // Method getter (allocates bound Class); not a field IC slot.
     ctx.out << "  vtable_set(" << name << "_vtable, selector_intern(\""
             << mangle_getter(n.decl->name) << "\"), " << name << "__"
             << mangle_getter(n.decl->name) << ");\n";
@@ -2939,6 +3231,10 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
       ctx.out << "    vtable_set(" << name << "Class_vtable, selector_intern(\"call_o\"), "
               << name << "__call_o);\n";
     }
+    if (info->is_type_nested && !info->has_static_call0) {
+      ctx.out << "    vtable_set(" << name << "Class_vtable, selector_intern(\"call_o\"), "
+              << name << "Class__call_o);\n";
+    }
     for (const Field& f : c.fields) {
       if (!f.is_static || !f.init) {
         continue;
@@ -2955,6 +3251,12 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
       const std::string ncpp = name + "_" + n.decl->name;
       ctx.out << "    g_" << name << "Class." << n.decl->name << " = as_id(&g_" << ncpp
               << "Class);\n";
+    }
+    for (const Method& m : c.methods) {
+      if (m.is_static && m.name.empty()) {
+        ctx.out << "    (void)" << name << "__static_init(as_id(&g_" << name
+                << "Class), 0);\n";
+      }
     }
     ctx.out << "    g_" << name << "Class_inited = true;\n";
     ctx.out << "  }\n";
@@ -3113,6 +3415,21 @@ codegen_cpp(const Program& program, const std::string& source_path)
   // Reset prelude; top-level `my` / expr may emit more closures into it.
   ctx.prelude.str("");
   ctx.prelude.clear();
+  // Forward-declare top-level functions so class field inits / methods can call them.
+  for (const Stmt& s : program.stmts) {
+    if (s.kind != Stmt::Kind::Func) {
+      continue;
+    }
+    const FuncDecl& f = s.func_decl;
+    ctx.out << "static id fn_" << f.name << "(";
+    for (size_t i = 0; i < f.params.size(); ++i) {
+      if (i) {
+        ctx.out << ", ";
+      }
+      ctx.out << "id";
+    }
+    ctx.out << ");\n";
+  }
   ctx.out << ctx.class_methods.str();
   ctx.class_methods.str("");
   ctx.class_methods.clear();
@@ -3130,9 +3447,7 @@ codegen_cpp(const Program& program, const std::string& source_path)
     for (const auto& kv : ctx.package_cpp) {
       ctx.out << "  ensure_" << kv.second << "();\n";
     }
-    for (const auto& kv : ctx.classes) {
-      ctx.out << "  ensure_" << kv.first << "();\n";
-    }
+    // Top-level `my` bindings before class static init (lazy ensure on first use).
     ctx.env_params = ctx.toplevel_vars;
     for (const Stmt& s : program.stmts) {
       if (s.kind == Stmt::Kind::VarDecl) {
@@ -3143,7 +3458,11 @@ codegen_cpp(const Program& program, const std::string& source_path)
         } else {
           ctx.out << "  " << local_sym(s.var_name) << " = null_id();\n";
         }
-        // Already in toplevel_vars / env_params.
+      }
+    }
+    for (const Stmt& s : program.stmts) {
+      if (s.kind == Stmt::Kind::VarDecl) {
+        continue;
       } else if (s.kind == Stmt::Kind::Expr) {
         ctx.current_class = nullptr;
         emit_line(ctx, s.line);

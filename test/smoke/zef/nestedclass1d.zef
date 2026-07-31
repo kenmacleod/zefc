@@ -1,0 +1,31 @@
+class Foo {
+    accessible f
+
+    fn (inF) f = inF
+
+    class Bar {
+        readable g
+
+        fn () g = f
+
+        fn h f + g
+    }
+}
+
+class Bar : Foo {
+    fn (inF) super(inF)
+}
+
+fn test
+{
+    my o = Bar(42)
+    my p = o.Bar()
+    o.f = 666
+    println(o.f)
+    println(p.g)
+    println(p.h)
+}
+
+test
+test
+test

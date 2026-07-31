@@ -57,9 +57,11 @@ struct ClassDecl {
   // Type-nested classes (`static class` / `class` inside a class body).
   struct Nested {
     bool is_static = false;
+    bool is_private = false;
     std::unique_ptr<ClassDecl> decl;
   };
   std::vector<Nested> nested;
+  bool is_final = false;
   int line = 1;
 
   ClassDecl();

@@ -1,0 +1,14 @@
+my g
+fn thingy g += 1
+
+class Foo {
+    my f = thingy
+    fn () println("world")
+    fn f f
+    static my s = thingy
+    static fn () println("hello")
+    static fn s s
+}
+
+println(Foo().f)
+println(Foo.s)

@@ -19,6 +19,7 @@ enum class TokKind {
   KwMy,
   KwStatic,
   KwPrivate,
+  KwFinal,
   KwWhile,
   KwIf,
   KwElse,

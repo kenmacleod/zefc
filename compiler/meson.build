@@ -156,7 +156,13 @@ foreach case_name : ['test30', 'super', 'test4', 'test6', 'test24', 'test25',
                      'test26b', 'test26c', 'test37', 'test38', 'test43', 'test',
                      'test42', 'testc', 'nbody', 'richards', 'splay', 'load1',
                      'load4', 'load5', 'load6', 'load7', 'load8', 'load9',
-                     'load10', 'double', 'cycle']
+                     'load10', 'double', 'cycle',
+                     'nestedclass1', 'nestedclass1c', 'nestedclass1d',
+                     'nestedclass2', 'nestedclass3b', 'nestedclass3d',
+                     'nestedclass4c', 'nestedclass4d',
+                     'initializers', 'initializers2', 'initializers3',
+                     'statics', 'test7', 'test3b',
+                     'private1d', 'private1e']
   case_zef = meson.project_source_root() / 'test/smoke/zef' / (case_name + '.zef')
   case_gen = custom_target(
     case_name + '_from_zef',
@@ -186,7 +192,9 @@ endforeach
 
 foreach err_name : ['test10', 'test11', 'test16', 'test17', 'test18', 'test21',
                     'load2', 'load3', 'package11', 'accessors2', 'test28',
-                    'private1b']
+                    'private1b',
+                    'nestedclass1b', 'nestedclass3', 'nestedclass3c',
+                    'nestedclass4']
   test(
     'compiler ' + err_name + ' stderr',
     python3,
@@ -222,6 +230,32 @@ test(
     meson.project_source_root() / 'test/compiler/check_runtime_error.py',
     test39_exe,
     meson.project_source_root() / 'test/smoke/expected/test39.stderr',
+  ],
+  suite : 'compiler',
+)
+
+nestedclass4b_zef = meson.project_source_root() / 'test/smoke/zef/nestedclass4b.zef'
+nestedclass4b_gen = custom_target(
+  'nestedclass4b_from_zef',
+  input : nestedclass4b_zef,
+  output : 'nestedclass4b.gen.cpp',
+  command : [zefc_exe, '@INPUT@', '-o', '@OUTPUT@'],
+)
+nestedclass4b_exe = executable(
+  'zefc-nestedclass4b',
+  [nestedclass4b_gen] + stdlib_sources,
+  dependencies : [runtime_dep],
+  include_directories : compiler_exe_inc,
+  cpp_args : zefc_cpp_args,
+  install : false,
+)
+test(
+  'compiler nestedclass4b stderr',
+  python3,
+  args : [
+    meson.project_source_root() / 'test/compiler/check_runtime_error.py',
+    nestedclass4b_exe,
+    meson.project_source_root() / 'test/smoke/expected/nestedclass4b.stderr',
   ],
   suite : 'compiler',
 )

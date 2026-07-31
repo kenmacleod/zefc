@@ -1,0 +1,20 @@
+class Foo {
+    accessible f
+
+    fn (inF) f = inF
+
+    static class Bar {
+        readable g
+
+        fn () g = f
+
+        fn h f + g
+    }
+}
+
+my o = Foo(42)
+my p = o.Bar()
+o.f = 666
+println(o.f)
+println(p.g)
+println(p.h)
