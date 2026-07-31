@@ -1,5 +1,7 @@
 #pragma once
 
+#include "zefc/runtime.hpp"
+
 namespace zefc {
 
 // Compiled-module load (not Zef source parse). Name matches the path
@@ -25,5 +27,10 @@ void module_load(const char* name);
 // Intern pending sites, grow vtables, write selector IDs into cells.
 // Safe to call multiple times; clears the pending site list.
 void zefc_module_barrier();
+
+// Mutable package member slots (load can rebind; unknown packages resolve here).
+bool package_slot_has(const char* pkg, const char* member);
+void package_slot_set(const char* pkg, const char* member, id value);
+id package_slot_get(const char* pkg, const char* member);
 
 } // namespace zefc

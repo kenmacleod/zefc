@@ -241,7 +241,6 @@ Parser::parse_class()
       next();
       is_private = true;
     }
-    (void)is_private; // access checks not enforced in transpiler yet
     if (check(TokKind::KwClass)) {
       ClassDecl::Nested nc;
       nc.is_static = is_static;
@@ -255,6 +254,7 @@ Parser::parse_class()
         Field f;
         f.line = peek().line;
         f.is_static = is_static;
+        f.is_private = is_private;
         f.name = expect(TokKind::Ident, "field name").text;
         if (is_my) {
         } else if (is_acc) {

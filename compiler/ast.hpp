@@ -15,6 +15,7 @@ struct Field {
   bool readable = false;
   bool accessible = false;
   bool is_static = false;
+  bool is_private = false;
   ExprPtr init;
   int line = 1;
 };

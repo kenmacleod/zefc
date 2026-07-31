@@ -16,6 +16,19 @@ modules()
   return table;
 }
 
+std::map<std::string, id>&
+package_slots()
+{
+  static std::map<std::string, id> table;
+  return table;
+}
+
+std::string
+slot_key(const char* pkg, const char* member)
+{
+  return std::string(pkg) + "\n" + member;
+}
+
 } // namespace
 
 void
@@ -44,6 +57,29 @@ module_load(const char* name)
   // themselves before those sends.
   it->second();
   zefc_module_barrier();
+}
+
+bool
+package_slot_has(const char* pkg, const char* member)
+{
+  return package_slots().count(slot_key(pkg, member)) != 0;
+}
+
+void
+package_slot_set(const char* pkg, const char* member, id value)
+{
+  package_slots()[slot_key(pkg, member)] = value;
+}
+
+id
+package_slot_get(const char* pkg, const char* member)
+{
+  const auto it = package_slots().find(slot_key(pkg, member));
+  if (it == package_slots().end()) {
+    std::string msg = std::string("cannot resolve get (call with no arguments) named ") + member;
+    zefc_error(msg.c_str());
+  }
+  return it->second;
 }
 
 } // namespace zefc

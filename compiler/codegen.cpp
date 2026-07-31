@@ -112,6 +112,7 @@ struct ClassInfo {
   const ClassDecl* decl = nullptr;
   std::string cpp_name; // C++ symbol prefix (may differ for type-nested classes)
   std::unordered_set<std::string> field_names;
+  std::unordered_set<std::string> private_fields; // private readable/accessible names
   std::unordered_set<std::string> param_names;
   std::unordered_set<std::string> method_names; // zero-arg instance methods (bare Ident call)
   std::unordered_map<std::string, size_t> methods; // instance method name → arity
@@ -184,6 +185,7 @@ struct Ctx {
   int closure_id = 0;
   int loop_depth = 0;
   bool allow_return = false;
+  bool saw_load = false;
 
   std::string fresh(const char* prefix)
   {
@@ -229,6 +231,33 @@ is_field(const Ctx& ctx, const std::string& name)
     return false;
   }
   return ctx.current_class->field_names.count(name);
+}
+
+void
+check_private_member_access(const Ctx& ctx, const std::string& name)
+{
+  bool private_elsewhere = false;
+  bool allowed_here = false;
+  for (const auto& kv : ctx.classes) {
+    if (!kv.second.private_fields.count(name)) {
+      continue;
+    }
+    if (ctx.current_class && class_cpp(*ctx.current_class) == class_cpp(kv.second)) {
+      allowed_here = true;
+    } else {
+      private_elsewhere = true;
+    }
+  }
+  if (private_elsewhere && !allowed_here) {
+    throw std::runtime_error("no such method: " + name);
+  }
+}
+
+bool
+is_builtin_name(const std::string& name)
+{
+  return name == "println" || name == "print" || name == "load" || name == "error" ||
+         name == "String" || name == "Array";
 }
 
 void
@@ -716,6 +745,10 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
       }
       throw std::runtime_error("unknown root package member `" + e.text + "`");
     }
+    if (e.lhs && e.lhs->kind == Expr::Kind::Ident && is_builtin_name(e.lhs->text)) {
+      // e.g. println.call(...) — Zef reports this as a bad int method.
+      throw std::runtime_error("bad method for int");
+    }
     // super.method → direct superclass method call
     if (e.lhs && e.lhs->kind == Expr::Kind::Ident && e.lhs->text == "super") {
       if (!ctx.current_class || ctx.current_class->decl->parent.empty()) {
@@ -753,6 +786,14 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
       }
       return;
     }
+    // After load(...), unknown package.member resolves via runtime slots.
+    if (ctx.saw_load && e.lhs && e.lhs->kind == Expr::Kind::Ident &&
+        !ctx.classes.count(e.lhs->text) && !ctx.package_cpp.count(e.lhs->text)) {
+      ctx.out << "  " << dst << " = package_slot_get(\"" << e.lhs->text << "\", \"" << e.text
+              << "\");\n";
+      return;
+    }
+    check_private_member_access(ctx, e.text);
     const std::string recv = ctx.fresh("t");
     ctx.out << "  id " << recv << ";\n";
     emit_expr(ctx, *e.lhs, recv);
@@ -1020,6 +1061,7 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
         return;
       }
       // obj.field = rhs → setter send
+      check_private_member_access(ctx, e.lhs->text);
       const std::string recv = ctx.fresh("t");
       ctx.out << "  id " << recv << ";\n";
       emit_expr(ctx, *e.lhs->lhs, recv);
@@ -1180,6 +1222,10 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
         emit_send(ctx, prop, "call_o", arg_tmps, dst);
         return;
       }
+      if (e.lhs->lhs && e.lhs->lhs->kind == Expr::Kind::Ident &&
+          is_builtin_name(e.lhs->lhs->text)) {
+        throw std::runtime_error("bad method for int");
+      }
       const std::string recv = ctx.fresh("t");
       ctx.out << "  id " << recv << ";\n";
       emit_expr(ctx, *e.lhs->lhs, recv);
@@ -1300,6 +1346,7 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
           throw std::runtime_error("load expects 1 argument");
         }
         // Runtime module map (pre-registered / dlopen later); not source parse.
+        ctx.saw_load = true;
         ctx.out << "  module_load(String__cstr(" << arg_tmps[0] << "));\n";
         ctx.out << "  " << dst << " = null_id();\n";
         return;
@@ -1702,6 +1749,9 @@ collect_class_decl(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name, bo
     if (!f.is_static) {
       info.field_names.insert(f.name);
     }
+    if (f.is_private && (f.readable || f.accessible)) {
+      info.private_fields.insert(f.name);
+    }
     if (f.is_static) {
       info.has_static = true;
     }
@@ -2075,11 +2125,30 @@ emit_package(Ctx& ctx, const PackageInfo& pkg)
       ctx.env_params.push_back(p);
       ctx.local_vars.insert(p);
     }
-    const std::string tmp = ctx.fresh("t");
-    ctx.out << "  id " << tmp << ";\n";
-    ctx.allow_return = true;
-    emit_body(ctx, f.body, tmp, false);
-    ctx.allow_return = false;
+    if (f.params.empty()) {
+      // Load-rebindable: seed slot from body once, then always read the slot.
+      ctx.out << "  if (!package_slot_has(\"" << pkg.path << "\", \"" << f.name << "\")) {\n";
+      const std::string tmp = ctx.fresh("t");
+      ctx.out << "  id " << tmp << ";\n";
+      if (f.body.empty()) {
+        ctx.out << "  " << tmp << " = null_id();\n";
+      } else {
+        for (size_t i = 0; i + 1 < f.body.size(); ++i) {
+          emit_block_item(ctx, f.body[i], nullptr);
+        }
+        emit_block_item(ctx, f.body.back(), &tmp);
+      }
+      ctx.out << "  package_slot_set(\"" << pkg.path << "\", \"" << f.name << "\", " << tmp
+              << ");\n";
+      ctx.out << "  }\n";
+      ctx.out << "  return package_slot_get(\"" << pkg.path << "\", \"" << f.name << "\");\n";
+    } else {
+      const std::string tmp = ctx.fresh("t");
+      ctx.out << "  id " << tmp << ";\n";
+      ctx.allow_return = true;
+      emit_body(ctx, f.body, tmp, false);
+      ctx.allow_return = false;
+    }
     ctx.env_params.clear();
     ctx.local_vars.clear();
     ctx.current_class = nullptr;

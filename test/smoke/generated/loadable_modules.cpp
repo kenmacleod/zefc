@@ -25,6 +25,8 @@ stuff_package()
   // package foo { fn f 42; readable x = 666 }
   g_package_foo_f = Int__from_i64(42);
   g_package_foo_x = Int__from_i64(666);
+  package_slot_set("foo", "f", g_package_foo_f);
+  package_slot_set("foo", "x", g_package_foo_x);
 }
 
 void
