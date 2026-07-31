@@ -24,10 +24,11 @@ struct ClassDecl;
 
 // Statement inside a `{ ... }` body (methods, functions, lambdas).
 struct BlockItem {
-  enum class Kind { Expr, VarDecl, Class } kind = Kind::Expr;
+  enum class Kind { Expr, VarDecl, Class, Import } kind = Kind::Expr;
   ExprPtr expr;         // Expr stmt, or VarDecl initializer (may be null)
   std::string var_name; // VarDecl
   std::unique_ptr<ClassDecl> nested_class; // Kind::Class
+  std::vector<std::string> import_path;   // Kind::Import
   int line = 1;
 
   BlockItem();
@@ -87,6 +88,7 @@ struct Expr {
     Continue,
     Return,
     RootPackage, // `..name` base (Zef GetRootPackage)
+    Block,       // `{ ... }` (may share parent scope or open a new one)
   } kind;
 
   std::string text; // Ident / String / Number / Dot field / Binary op / Assign "+="

@@ -186,6 +186,11 @@ struct Ctx {
   int loop_depth = 0;
   bool allow_return = false;
   bool saw_load = false;
+  // True inside functions/lambdas/methods, or brace blocks that declare `my`.
+  // When true, import(foo) overwrites local bindings; when false, existing names win.
+  bool import_binds = false;
+  // package name → members exported by a loaded module (e.g. foo → f,x).
+  std::unordered_map<std::string, std::vector<std::string>> loaded_package_members;
 
   std::string fresh(const char* prefix)
   {
@@ -231,6 +236,95 @@ is_field(const Ctx& ctx, const std::string& name)
     return false;
   }
   return ctx.current_class->field_names.count(name);
+}
+
+void
+note_load_exports(Ctx& ctx, const std::string& path)
+{
+  // Hand-registered smoke modules (see loadable_modules.cpp).
+  if (path == "stuff/package.zef") {
+    ctx.loaded_package_members["foo"] = {"f", "x"};
+  }
+}
+
+void
+emit_store_name(Ctx& ctx, const std::string& name, const std::string& val)
+{
+  if (ctx.nest_captures.count(name)) {
+    ctx.out << "  body<" << ctx.nest_capture_type << ">(" << ctx.nest_capture_self << ")->"
+            << name << " = " << val << ";\n";
+  } else if (is_field(ctx, name)) {
+    ctx.out << "  body<" << class_cpp(*ctx.current_class) << "_>(self)->" << name << " = "
+            << val << ";\n";
+  } else {
+    ctx.out << "  " << local_sym(name) << " = " << val << ";\n";
+  }
+}
+
+bool
+name_is_bound(const Ctx& ctx, const std::string& name)
+{
+  if (ctx.local_vars.count(name) || ctx.nest_captures.count(name)) {
+    return true;
+  }
+  if (is_field(ctx, name)) {
+    return true;
+  }
+  for (const std::string& v : ctx.toplevel_vars) {
+    if (v == name) {
+      return true;
+    }
+  }
+  for (const std::string& v : ctx.env_params) {
+    if (v == name) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void
+emit_import_bind(Ctx& ctx, const std::vector<std::string>& path)
+{
+  if (path.empty()) {
+    throw std::runtime_error("empty import");
+  }
+  if (path.size() != 1) {
+    throw std::runtime_error("runtime import of nested path not supported yet");
+  }
+  const std::string& pkg = path[0];
+  std::vector<std::string> members;
+  if (ctx.loaded_package_members.count(pkg)) {
+    members = ctx.loaded_package_members[pkg];
+  } else if (ctx.package_cpp.count(pkg)) {
+    const PackageInfo& pi = ctx.packages.at(ctx.package_cpp.at(pkg));
+    for (const auto& kv : pi.funcs) {
+      if (kv.second->params.empty()) {
+        members.push_back(kv.first);
+      }
+    }
+    for (const Field* f : pi.fields) {
+      if (f->readable || f->accessible) {
+        members.push_back(f->name);
+      }
+    }
+  } else {
+    throw std::runtime_error("import of unknown package " + pkg);
+  }
+  for (const std::string& m : members) {
+    if (!ctx.import_binds && name_is_bound(ctx, m)) {
+      continue; // shared scope: existing bindings win
+    }
+    const std::string tmp = ctx.fresh("t");
+    ctx.out << "  id " << tmp << " = package_slot_get(\"" << pkg << "\", \"" << m << "\");\n";
+    if (!name_is_bound(ctx, m) && !is_field(ctx, m) && !ctx.nest_captures.count(m)) {
+      ctx.out << "  id " << local_sym(m) << " = " << tmp << ";\n";
+      ctx.local_vars.insert(m);
+      ctx.env_params.push_back(m);
+    } else {
+      emit_store_name(ctx, m, tmp);
+    }
+  }
 }
 
 void
@@ -361,16 +455,23 @@ collect_free(const Expr& e, const std::unordered_set<std::string>& locals,
     break;
   case Expr::Kind::While:
   case Expr::Kind::If:
+  case Expr::Kind::Block:
     if (e.lhs) {
       collect_free(*e.lhs, locals, env, captures);
     }
-    for (const BlockItem& item : e.body) {
-      if (item.kind == BlockItem::Kind::VarDecl) {
-        if (item.expr) {
-          collect_free(*item.expr, locals, env, captures);
+    {
+      std::unordered_set<std::string> block_locals = locals;
+      for (const BlockItem& item : e.body) {
+        if (item.kind == BlockItem::Kind::VarDecl) {
+          if (item.expr) {
+            collect_free(*item.expr, block_locals, env, captures);
+          }
+          block_locals.insert(item.var_name);
+        } else if (item.kind == BlockItem::Kind::Import) {
+          // import binds package members; no free refs
+        } else if (item.expr) {
+          collect_free(*item.expr, block_locals, env, captures);
         }
-      } else if (item.expr) {
-        collect_free(*item.expr, locals, env, captures);
       }
     }
     for (const BlockItem& item : e.else_body) {
@@ -501,9 +602,13 @@ emit_lambda(Ctx& ctx, const Expr& e, const std::string& dst)
   body_ctx.classes = ctx.classes;
   body_ctx.functions = ctx.functions;
   body_ctx.packages = ctx.packages;
+  body_ctx.package_cpp = ctx.package_cpp;
   body_ctx.imports = ctx.imports;
   body_ctx.local_classes = ctx.local_classes;
   body_ctx.nested_emitted = ctx.nested_emitted;
+  body_ctx.toplevel_vars = ctx.toplevel_vars;
+  body_ctx.loaded_package_members = ctx.loaded_package_members;
+  body_ctx.saw_load = ctx.saw_load;
   body_ctx.source_path = ctx.source_path;
   body_ctx.tmp = ctx.tmp;
   body_ctx.closure_id = ctx.closure_id;
@@ -538,11 +643,14 @@ emit_lambda(Ctx& ctx, const Expr& e, const std::string& dst)
   const std::string tmp = body_ctx.fresh("t");
   body_ctx.out << "  id " << tmp << ";\n";
   body_ctx.allow_return = true;
+  body_ctx.import_binds = true;
   emit_body(body_ctx, e.body, tmp, false);
   body_ctx.out << "}\n\n";
   ctx.tmp = body_ctx.tmp;
   ctx.closure_id = body_ctx.closure_id;
   ctx.nested_emitted = body_ctx.nested_emitted;
+  ctx.loaded_package_members = body_ctx.loaded_package_members;
+  ctx.saw_load = ctx.saw_load || body_ctx.saw_load;
   // Nested closures first, then this call method (call body may reference them).
   ctx.prelude << body_ctx.prelude.str();
   ctx.prelude << body_ctx.out.str();
@@ -692,6 +800,77 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
   case Expr::Kind::Lambda:
     emit_lambda(ctx, e, dst);
     return;
+  case Expr::Kind::Block: {
+    bool has_var = false;
+    for (const BlockItem& item : e.body) {
+      if (item.kind == BlockItem::Kind::VarDecl) {
+        has_var = true;
+        break;
+      }
+    }
+    if (!has_var) {
+      // Shares parent scope (import does not overwrite existing bindings).
+      if (e.body.empty()) {
+        ctx.out << "  " << dst << " = null_id();\n";
+        return;
+      }
+      for (size_t i = 0; i + 1 < e.body.size(); ++i) {
+        emit_block_item(ctx, e.body[i], nullptr);
+      }
+      emit_block_item(ctx, e.body.back(), &dst);
+      return;
+    }
+    // New scope: shadow outer bindings, then import may overwrite.
+    ctx.out << "  {\n";
+    const bool saved_import_binds = ctx.import_binds;
+    const auto saved_locals = ctx.local_vars;
+    const auto saved_env = ctx.env_params;
+    std::unordered_set<std::string> declared;
+    for (const BlockItem& item : e.body) {
+      if (item.kind == BlockItem::Kind::VarDecl) {
+        declared.insert(item.var_name);
+      }
+    }
+    std::unordered_set<std::string> copied;
+    auto copy_name = [&](const std::string& name) {
+      if (declared.count(name) || copied.count(name)) {
+        return;
+      }
+      copied.insert(name);
+      const std::string snap = ctx.fresh("snap");
+      if (ctx.nest_captures.count(name)) {
+        ctx.out << "  id " << snap << " = body<" << ctx.nest_capture_type << ">("
+                << ctx.nest_capture_self << ")->" << name << ";\n";
+      } else if (is_field(ctx, name)) {
+        ctx.out << "  id " << snap << " = body<" << class_cpp(*ctx.current_class)
+                << "_>(self)->" << name << ";\n";
+      } else {
+        ctx.out << "  id " << snap << " = " << local_sym(name) << ";\n";
+      }
+      ctx.out << "  id " << local_sym(name) << " = " << snap << ";\n";
+      ctx.local_vars.insert(name);
+    };
+    for (const std::string& name : ctx.env_params) {
+      copy_name(name);
+    }
+    for (const std::string& name : ctx.toplevel_vars) {
+      copy_name(name);
+    }
+    ctx.import_binds = true;
+    if (e.body.empty()) {
+      ctx.out << "  " << dst << " = null_id();\n";
+    } else {
+      for (size_t i = 0; i + 1 < e.body.size(); ++i) {
+        emit_block_item(ctx, e.body[i], nullptr);
+      }
+      emit_block_item(ctx, e.body.back(), &dst);
+    }
+    ctx.import_binds = saved_import_binds;
+    ctx.local_vars = saved_locals;
+    ctx.env_params = saved_env;
+    ctx.out << "  }\n";
+    return;
+  }
   case Expr::Kind::ArrayLit: {
     ctx.out << "  " << dst << " = Array__new();\n";
     for (const auto& a : e.args) {
@@ -1347,6 +1526,9 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
         }
         // Runtime module map (pre-registered / dlopen later); not source parse.
         ctx.saw_load = true;
+        if (!e.args.empty() && e.args[0] && e.args[0]->kind == Expr::Kind::String) {
+          note_load_exports(ctx, e.args[0]->text);
+        }
         ctx.out << "  module_load(String__cstr(" << arg_tmps[0] << "));\n";
         ctx.out << "  " << dst << " = null_id();\n";
         return;
@@ -1535,6 +1717,7 @@ emit_nested_class(Ctx& ctx, const ClassDecl& c, const std::vector<std::string>& 
       const std::string tmp = mctx.fresh("t");
       mctx.out << "  id " << tmp << ";\n";
       mctx.allow_return = true;
+      mctx.import_binds = true;
       emit_body(mctx, m.body, tmp, false);
       mctx.allow_return = false;
       mctx.out << "}\n\n";
@@ -1592,6 +1775,7 @@ emit_nested_class(Ctx& ctx, const ClassDecl& c, const std::vector<std::string>& 
       const std::string tmp = mctx.fresh("t");
       mctx.out << "  id " << tmp << ";\n";
       mctx.allow_return = true;
+      mctx.import_binds = true;
       emit_body(mctx, ctor->body, tmp, true);
       mctx.allow_return = false;
     } else {
@@ -1658,6 +1842,13 @@ void
 emit_block_item(Ctx& ctx, const BlockItem& item, const std::string* result_dst)
 {
   emit_line(ctx, item.line);
+  if (item.kind == BlockItem::Kind::Import) {
+    emit_import_bind(ctx, item.import_path);
+    if (result_dst) {
+      ctx.out << "  " << *result_dst << " = null_id();\n";
+    }
+    return;
+  }
   if (item.kind == BlockItem::Kind::Class) {
     const ClassDecl& c = *item.nested_class;
     std::vector<std::string> captures;
@@ -2094,8 +2285,10 @@ emit_package(Ctx& ctx, const PackageInfo& pkg)
     ctx.out << "  id " << tmp << ";\n";
     ctx.local_vars.clear();
     ctx.allow_return = true;
+    ctx.import_binds = true;
     emit_body(ctx, *pkg.ctor_body, tmp, true);
     ctx.allow_return = false;
+    ctx.import_binds = false;
     ctx.env_params.clear();
     ctx.local_vars.clear();
     ctx.current_class = nullptr;
@@ -2146,8 +2339,10 @@ emit_package(Ctx& ctx, const PackageInfo& pkg)
       const std::string tmp = ctx.fresh("t");
       ctx.out << "  id " << tmp << ";\n";
       ctx.allow_return = true;
+      ctx.import_binds = true;
       emit_body(ctx, f.body, tmp, false);
       ctx.allow_return = false;
+      ctx.import_binds = false;
     }
     ctx.env_params.clear();
     ctx.local_vars.clear();
@@ -2454,8 +2649,10 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
       const std::string tmp = ctx.fresh("t");
       ctx.out << "  id " << tmp << ";\n";
       ctx.allow_return = true;
+      ctx.import_binds = true;
       emit_body(ctx, m->body, tmp, true);
       ctx.allow_return = false;
+      ctx.import_binds = false;
     } else {
       ctx.out << "  return self;\n";
     }
@@ -2514,8 +2711,10 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
       const std::string tmp = ctx.fresh("t");
       ctx.out << "  id " << tmp << ";\n";
       ctx.allow_return = true;
+      ctx.import_binds = true;
       emit_body(ctx, m.body, tmp, false);
       ctx.allow_return = false;
+      ctx.import_binds = false;
       ctx.env_params.clear();
       ctx.local_vars.clear();
       ctx.in_static_method = false;
@@ -2786,8 +2985,10 @@ codegen_cpp(const Program& program, const std::string& source_path)
       ctx.out << "  id " << tmp << ";\n";
       emit_line(ctx, f.line);
       ctx.allow_return = true;
+      ctx.import_binds = true;
       emit_body(ctx, f.body, tmp, false);
       ctx.allow_return = false;
+      ctx.import_binds = false;
       ctx.env_params.clear();
       ctx.local_vars.clear();
       ctx.out << "}\n\n";

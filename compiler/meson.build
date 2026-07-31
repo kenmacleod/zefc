@@ -155,7 +155,8 @@ foreach case_name : ['test30', 'super', 'test4', 'test6', 'test24', 'test25',
                      'package12', 'package12b', 'package12c',
                      'test26b', 'test26c', 'test37', 'test38', 'test43', 'test',
                      'test42', 'testc', 'nbody', 'richards', 'splay', 'load1',
-                     'load4', 'load5']
+                     'load4', 'load5', 'load6', 'load7', 'load8', 'load9',
+                     'load10']
   case_zef = meson.project_source_root() / 'test/smoke/zef' / (case_name + '.zef')
   case_gen = custom_target(
     case_name + '_from_zef',

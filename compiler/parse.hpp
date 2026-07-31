@@ -25,9 +25,12 @@ private:
   PackageDecl parse_package();
   Method parse_method();
   FuncDecl parse_func();
+  std::vector<std::string> parse_import_path();
+  std::vector<BlockItem> parse_brace_items();
   std::vector<BlockItem> parse_method_body();
   std::vector<BlockItem> parse_my_decls();
   BlockItem parse_block_item();
+  ExprPtr parse_block_expr();
   ExprPtr parse_expr();
   ExprPtr parse_assign();
   ExprPtr parse_or();

@@ -91,11 +91,14 @@ Parser::parse_stmt()
     Stmt s;
     s.kind = Stmt::Kind::Import;
     s.line = line;
-    s.import_path.push_back(expect(TokKind::Ident, "package name").text);
-    while (check(TokKind::Dot)) {
-      next();
-      s.import_path.push_back(expect(TokKind::Ident, "package name").text);
-    }
+    s.import_path = parse_import_path();
+    return s;
+  }
+  if (check(TokKind::LBrace)) {
+    Stmt s;
+    s.kind = Stmt::Kind::Expr;
+    s.line = line;
+    s.expr = parse_block_expr();
     return s;
   }
   if (check(TokKind::KwClass)) {
@@ -457,32 +460,70 @@ Parser::parse_my_decls()
   return items;
 }
 
+std::vector<std::string>
+Parser::parse_import_path()
+{
+  // `import foo` / `import foo.bar` / `import(foo)` / `import(foo.bar)`
+  const bool paren = check(TokKind::LParen);
+  if (paren) {
+    next();
+  }
+  std::vector<std::string> path;
+  path.push_back(expect(TokKind::Ident, "package name").text);
+  while (check(TokKind::Dot)) {
+    next();
+    path.push_back(expect(TokKind::Ident, "package name").text);
+  }
+  if (paren) {
+    expect(TokKind::RParen, ")");
+  }
+  return path;
+}
+
+std::vector<BlockItem>
+Parser::parse_brace_items()
+{
+  expect(TokKind::LBrace, "{");
+  std::vector<BlockItem> body;
+  while (!check(TokKind::RBrace) && !check(TokKind::Eof)) {
+    while (check(TokKind::Semicolon)) {
+      next();
+    }
+    if (check(TokKind::RBrace)) {
+      break;
+    }
+    if (check(TokKind::KwMy)) {
+      for (auto& item : parse_my_decls()) {
+        body.push_back(std::move(item));
+      }
+    } else {
+      body.push_back(parse_block_item());
+    }
+    while (check(TokKind::Semicolon)) {
+      next();
+    }
+  }
+  expect(TokKind::RBrace, "}");
+  return body;
+}
+
+ExprPtr
+Parser::parse_block_expr()
+{
+  const int line = peek().line;
+  auto e = std::make_unique<Expr>();
+  e->kind = Expr::Kind::Block;
+  e->line = line;
+  e->body = parse_brace_items();
+  return e;
+}
+
 std::vector<BlockItem>
 Parser::parse_method_body()
 {
   std::vector<BlockItem> body;
   if (check(TokKind::LBrace)) {
-    next();
-    while (!check(TokKind::RBrace) && !check(TokKind::Eof)) {
-      while (check(TokKind::Semicolon)) {
-        next();
-      }
-      if (check(TokKind::RBrace)) {
-        break;
-      }
-      if (check(TokKind::KwMy)) {
-        for (auto& item : parse_my_decls()) {
-          body.push_back(std::move(item));
-        }
-      } else {
-        body.push_back(parse_block_item());
-      }
-      while (check(TokKind::Semicolon)) {
-        next();
-      }
-    }
-    expect(TokKind::RBrace, "}");
-    return body; // may be empty
+    return parse_brace_items();
   }
   if (check(TokKind::KwMy)) {
     return parse_my_decls();
@@ -495,6 +536,21 @@ BlockItem
 Parser::parse_block_item()
 {
   const int line = peek().line;
+  if (check(TokKind::KwImport)) {
+    next();
+    BlockItem item;
+    item.kind = BlockItem::Kind::Import;
+    item.line = line;
+    item.import_path = parse_import_path();
+    return item;
+  }
+  if (check(TokKind::LBrace)) {
+    BlockItem item;
+    item.kind = BlockItem::Kind::Expr;
+    item.line = line;
+    item.expr = parse_block_expr();
+    return item;
+  }
   // Nested / scope-local class
   if (check(TokKind::KwClass)) {
     BlockItem item;
@@ -948,6 +1004,10 @@ Parser::parse_postfix()
       d->text = expect(TokKind::Ident, "member name").text;
       e = std::move(d);
     } else if (check(TokKind::LParen)) {
+      // Newline before `(` starts a new statement (so `x = 1410\n(fn{})()` is two stmts).
+      if (peek().after_newline) {
+        break;
+      }
       auto c = std::make_unique<Expr>();
       c->kind = Expr::Kind::Call;
       c->lhs = std::move(e);
