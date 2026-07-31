@@ -76,7 +76,12 @@ main(int argc, char** argv)
     write_file(output, cpp);
     return 0;
   } catch (const std::exception& ex) {
-    std::cerr << "zefc: " << ex.what() << "\n";
+    const std::string msg = ex.what();
+    if (msg.rfind("Error:", 0) == 0) {
+      std::cerr << msg << "\n";
+    } else {
+      std::cerr << "Error: " << msg << "\n";
+    }
     return 1;
   }
 }

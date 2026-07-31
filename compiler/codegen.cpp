@@ -181,6 +181,8 @@ struct Ctx {
   int last_line = -1;
   int tmp = 0;
   int closure_id = 0;
+  int loop_depth = 0;
+  bool allow_return = false;
 
   std::string fresh(const char* prefix)
   {
@@ -505,6 +507,7 @@ emit_lambda(Ctx& ctx, const Expr& e, const std::string& dst)
   body_ctx.out << ")\n{\n  (void)selector;\n";
   const std::string tmp = body_ctx.fresh("t");
   body_ctx.out << "  id " << tmp << ";\n";
+  body_ctx.allow_return = true;
   emit_body(body_ctx, e.body, tmp, false);
   body_ctx.out << "}\n\n";
   ctx.tmp = body_ctx.tmp;
@@ -634,6 +637,24 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
       // Bare zero-arg function name → call (println(foo), property getters).
       ctx.out << "  " << dst << " = fn_" << e.text << "();\n";
     } else {
+      bool in_env = false;
+      for (const std::string& p : ctx.env_params) {
+        if (p == e.text) {
+          in_env = true;
+          break;
+        }
+      }
+      if (!in_env) {
+        for (const std::string& p : ctx.toplevel_vars) {
+          if (p == e.text) {
+            in_env = true;
+            break;
+          }
+        }
+      }
+      if (!in_env) {
+        throw std::runtime_error("cannot resolve get (call with no arguments) named " + e.text);
+      }
       ctx.out << "  " << dst << " = " << local_sym(e.text) << ";\n";
     }
     return;
@@ -826,9 +847,11 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
     ctx.out << "  id " << cond << ";\n";
     emit_expr(ctx, *e.lhs, cond);
     ctx.out << "  if (!" << truthy_expr(cond) << ") {\n    break;\n  }\n";
+    ++ctx.loop_depth;
     for (const BlockItem& item : e.body) {
       emit_block_item(ctx, item, nullptr);
     }
+    --ctx.loop_depth;
     ctx.out << "  }\n";
     ctx.out << "  " << dst << " = null_id();\n";
     return;
@@ -859,14 +882,23 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
     return;
   }
   case Expr::Kind::Break:
+    if (ctx.loop_depth <= 0) {
+      throw std::runtime_error("cannot break");
+    }
     ctx.out << "  break;\n";
     ctx.out << "  " << dst << " = null_id();\n";
     return;
   case Expr::Kind::Continue:
+    if (ctx.loop_depth <= 0) {
+      throw std::runtime_error("cannot continue");
+    }
     ctx.out << "  continue;\n";
     ctx.out << "  " << dst << " = null_id();\n";
     return;
   case Expr::Kind::Return: {
+    if (!ctx.allow_return) {
+      throw std::runtime_error("cannot return");
+    }
     if (e.rhs) {
       const std::string v = ctx.fresh("t");
       ctx.out << "  id " << v << ";\n";
@@ -1262,6 +1294,15 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
         ctx.out << "  " << dst << " = null_id();\n";
         return;
       }
+      if (callee == "load") {
+        if (arg_tmps.size() != 1) {
+          throw std::runtime_error("load expects 1 argument");
+        }
+        // Runtime module map (pre-registered / dlopen later); not source parse.
+        ctx.out << "  module_load(String__cstr(" << arg_tmps[0] << "));\n";
+        ctx.out << "  " << dst << " = null_id();\n";
+        return;
+      }
       if (ctx.current_class && ctx.current_class->methods.count(callee) &&
           ctx.current_class->methods.at(callee) == arg_tmps.size() &&
           !ctx.current_class->param_names.count(callee)) {
@@ -1445,7 +1486,9 @@ emit_nested_class(Ctx& ctx, const ClassDecl& c, const std::vector<std::string>& 
       mctx.out << ")\n{\n  (void)selector;\n";
       const std::string tmp = mctx.fresh("t");
       mctx.out << "  id " << tmp << ";\n";
+      mctx.allow_return = true;
       emit_body(mctx, m.body, tmp, false);
+      mctx.allow_return = false;
       mctx.out << "}\n\n";
     }
 
@@ -1480,9 +1523,12 @@ emit_nested_class(Ctx& ctx, const ClassDecl& c, const std::vector<std::string>& 
       mctx.nest_captures.insert(cap);
     }
     info.param_names.clear();
+    mctx.local_vars.clear();
     if (ctor) {
       for (const std::string& p : ctor->params) {
         info.param_names.insert(p);
+        mctx.local_vars.insert(p);
+        mctx.env_params.push_back(p);
       }
     }
     for (const Field& f : c.fields) {
@@ -1497,7 +1543,9 @@ emit_nested_class(Ctx& ctx, const ClassDecl& c, const std::vector<std::string>& 
     if (ctor) {
       const std::string tmp = mctx.fresh("t");
       mctx.out << "  id " << tmp << ";\n";
+      mctx.allow_return = true;
       emit_body(mctx, ctor->body, tmp, true);
+      mctx.allow_return = false;
     } else {
       mctx.out << "  return self;\n";
     }
@@ -1783,6 +1831,10 @@ collect_classes(Ctx& ctx, const Program& program)
 {
   for (const Stmt& s : program.stmts) {
     if (s.kind == Stmt::Kind::Func) {
+      if (ctx.functions.count(s.func_decl.name)) {
+        throw std::runtime_error("parse error at line " + std::to_string(s.line) +
+                                 ": cannot redeclare function named " + s.func_decl.name);
+      }
       FuncInfo fi;
       fi.decl = &s.func_decl;
       fi.arity = s.func_decl.params.size();
@@ -1831,10 +1883,14 @@ collect_classes(Ctx& ctx, const Program& program)
     }
     collect_class_decl(ctx, s.class_decl, s.class_decl.name, true);
   }
-  // Second pass: merge parent field names
+  // Second pass: merge parent field names (reject cycles first).
   for (auto& kv : ctx.classes) {
+    std::unordered_set<std::string> seen;
     std::string p = kv.second.decl->parent;
     while (!p.empty()) {
+      if (p == kv.first || !seen.insert(p).second) {
+        throw std::runtime_error("cannot create cyclic class hierarchy");
+      }
       auto it = ctx.classes.find(p);
       if (it == ctx.classes.end()) {
         break;
@@ -1986,7 +2042,9 @@ emit_package(Ctx& ctx, const PackageInfo& pkg)
     const std::string tmp = ctx.fresh("t");
     ctx.out << "  id " << tmp << ";\n";
     ctx.local_vars.clear();
+    ctx.allow_return = true;
     emit_body(ctx, *pkg.ctor_body, tmp, true);
+    ctx.allow_return = false;
     ctx.env_params.clear();
     ctx.local_vars.clear();
     ctx.current_class = nullptr;
@@ -2018,7 +2076,9 @@ emit_package(Ctx& ctx, const PackageInfo& pkg)
     }
     const std::string tmp = ctx.fresh("t");
     ctx.out << "  id " << tmp << ";\n";
+    ctx.allow_return = true;
     emit_body(ctx, f.body, tmp, false);
+    ctx.allow_return = false;
     ctx.env_params.clear();
     ctx.local_vars.clear();
     ctx.current_class = nullptr;
@@ -2283,6 +2343,15 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
     ctx.out << ")\n{\n  (void)selector;\n";
     ctx.env_params.clear();
     ctx.local_vars.clear();
+    info->param_names.clear();
+    // Ctor params must be visible to field initializers (`baz = inBaz`).
+    if (m) {
+      for (const std::string& p : m->params) {
+        info->param_names.insert(p);
+        ctx.env_params.push_back(p);
+        ctx.local_vars.insert(p);
+      }
+    }
     for (const Field& f : c.fields) {
       if (!f.is_static) {
         ctx.env_params.push_back(f.name);
@@ -2311,16 +2380,12 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
       ctx.out << "  body<" << name << "_>(self)->" << n.decl->name << " = as_id(&g_" << ncpp
               << "Class);\n";
     }
-    info->param_names.clear();
     if (m) {
-      for (const std::string& p : m->params) {
-        info->param_names.insert(p);
-        ctx.env_params.push_back(p);
-        ctx.local_vars.insert(p);
-      }
       const std::string tmp = ctx.fresh("t");
       ctx.out << "  id " << tmp << ";\n";
+      ctx.allow_return = true;
       emit_body(ctx, m->body, tmp, true);
+      ctx.allow_return = false;
     } else {
       ctx.out << "  return self;\n";
     }
@@ -2378,7 +2443,9 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
       }
       const std::string tmp = ctx.fresh("t");
       ctx.out << "  id " << tmp << ";\n";
+      ctx.allow_return = true;
       emit_body(ctx, m.body, tmp, false);
+      ctx.allow_return = false;
       ctx.env_params.clear();
       ctx.local_vars.clear();
       ctx.in_static_method = false;
@@ -2545,6 +2612,7 @@ codegen_cpp(const Program& program, const std::string& source_path)
   ctx.out << "#include \"zefc/int_api.hpp\"\n";
   ctx.out << "#include \"zefc/io.hpp\"\n";
   ctx.out << "#include \"zefc/known_selectors.hpp\"\n";
+  ctx.out << "#include \"zefc/module.hpp\"\n";
   ctx.out << "#include \"zefc/runtime.hpp\"\n";
   ctx.out << "#include \"zefc/runtime_bootstrap.hpp\"\n";
   ctx.out << "#include \"zefc/string_api.hpp\"\n\n";
@@ -2560,6 +2628,20 @@ codegen_cpp(const Program& program, const std::string& source_path)
   }
   if (!ctx.toplevel_vars.empty()) {
     ctx.out << "\n";
+  }
+  {
+    std::unordered_set<std::string> top_vars(ctx.toplevel_vars.begin(), ctx.toplevel_vars.end());
+    for (const Stmt& s : program.stmts) {
+      if (s.kind != Stmt::Kind::Func) {
+        continue;
+      }
+      if (top_vars.count(s.func_decl.name) ||
+          (ctx.functions.count(s.func_decl.name) &&
+           ctx.functions[s.func_decl.name].decl != &s.func_decl)) {
+        throw std::runtime_error("parse error at line " + std::to_string(s.line) +
+                                 ": cannot redeclare function named " + s.func_decl.name);
+      }
+    }
   }
 
   for (const Stmt& s : program.stmts) {
@@ -2632,7 +2714,9 @@ codegen_cpp(const Program& program, const std::string& source_path)
       const std::string tmp = ctx.fresh("t");
       ctx.out << "  id " << tmp << ";\n";
       emit_line(ctx, f.line);
+      ctx.allow_return = true;
       emit_body(ctx, f.body, tmp, false);
+      ctx.allow_return = false;
       ctx.env_params.clear();
       ctx.local_vars.clear();
       ctx.out << "}\n\n";

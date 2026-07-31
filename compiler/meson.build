@@ -31,13 +31,16 @@ stdlib_sources = files(
   '../test/smoke/generated/int.cpp',
   '../test/smoke/generated/double.cpp',
   '../test/smoke/generated/array.cpp',
+  '../test/smoke/generated/loadable_modules.cpp',
 )
+smoke_inc = include_directories('../test/smoke')
+compiler_exe_inc = [runtime_inc, smoke_inc]
 
 hello_exe = executable(
   'zefc-hello',
   [hello_gen] + stdlib_sources,
   dependencies : [runtime_dep],
-  include_directories : runtime_inc,
+  include_directories : compiler_exe_inc,
   cpp_args : zefc_cpp_args,
   install : false,
 )
@@ -65,7 +68,7 @@ test3_exe = executable(
   'zefc-test3',
   [test3_gen] + stdlib_sources,
   dependencies : [runtime_dep],
-  include_directories : runtime_inc,
+  include_directories : compiler_exe_inc,
   cpp_args : zefc_cpp_args,
   install : false,
 )
@@ -93,7 +96,7 @@ accessors_exe = executable(
   'zefc-accessors',
   [accessors_gen] + stdlib_sources,
   dependencies : [runtime_dep],
-  include_directories : runtime_inc,
+  include_directories : compiler_exe_inc,
   cpp_args : zefc_cpp_args,
   install : false,
 )
@@ -126,7 +129,7 @@ foreach case_name : ['test30', 'super', 'test4', 'test6', 'test24', 'test25',
                      'package6', 'package7', 'package8', 'package9', 'package10',
                      'package12', 'package12b', 'package12c',
                      'test26b', 'test26c', 'test37', 'test38', 'test43', 'test',
-                     'test42', 'testc', 'nbody', 'richards', 'splay']
+                     'test42', 'testc', 'nbody', 'richards', 'splay', 'load1']
   case_zef = meson.project_source_root() / 'test/smoke/zef' / (case_name + '.zef')
   case_gen = custom_target(
     case_name + '_from_zef',
@@ -138,7 +141,7 @@ foreach case_name : ['test30', 'super', 'test4', 'test6', 'test24', 'test25',
     'zefc-' + case_name,
     [case_gen] + stdlib_sources,
     dependencies : [runtime_dep],
-    include_directories : runtime_inc,
+    include_directories : compiler_exe_inc,
     cpp_args : zefc_cpp_args,
     install : false,
   )
@@ -153,3 +156,44 @@ foreach case_name : ['test30', 'super', 'test4', 'test6', 'test24', 'test25',
     suite : 'compiler',
   )
 endforeach
+
+foreach err_name : ['test10', 'test11', 'test16', 'test17', 'test18', 'test21',
+                    'load2', 'load3']
+  test(
+    'compiler ' + err_name + ' stderr',
+    python3,
+    args : [
+      meson.project_source_root() / 'test/compiler/check_compile_error.py',
+      zefc_exe,
+      meson.project_source_root() / 'test/smoke/zef' / (err_name + '.zef'),
+      meson.project_source_root() / 'test/smoke/expected' / (err_name + '.stderr'),
+    ],
+    suite : 'compiler',
+  )
+endforeach
+
+test39_zef = meson.project_source_root() / 'test/smoke/zef/test39.zef'
+test39_gen = custom_target(
+  'test39_from_zef',
+  input : test39_zef,
+  output : 'test39.gen.cpp',
+  command : [zefc_exe, '@INPUT@', '-o', '@OUTPUT@'],
+)
+test39_exe = executable(
+  'zefc-test39',
+  [test39_gen] + stdlib_sources,
+  dependencies : [runtime_dep],
+  include_directories : compiler_exe_inc,
+  cpp_args : zefc_cpp_args,
+  install : false,
+)
+test(
+  'compiler test39 stderr',
+  python3,
+  args : [
+    meson.project_source_root() / 'test/compiler/check_runtime_error.py',
+    test39_exe,
+    meson.project_source_root() / 'test/smoke/expected/test39.stderr',
+  ],
+  suite : 'compiler',
+)
