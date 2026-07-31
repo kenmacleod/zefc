@@ -1,0 +1,25 @@
+here
+in thingy
+WTF
+WTF constructor!
+inBaz = 6
+arg = 5
+baz getter, baz = 11
+11
+in thingy
+WTF
+Foo
+WTF constructor!
+inBaz = 9000
+arg = 666
+bar getter
+baz getter, baz = 9666
+result = 9666
+9666
+WTF constructor!
+inBaz = 9000
+arg = 666
+bar getter
+baz getter, baz = 9666
+result = 9666
+9666

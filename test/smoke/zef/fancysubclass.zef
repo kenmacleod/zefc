@@ -1,0 +1,37 @@
+class Foo : if (x == 42) thingy(666) else stuff(1410) {
+    fn
+    {
+        super(9000)
+    }
+
+    fn bar
+    {
+        super.baz
+    }
+
+    static fn
+    {
+        println("Foo")
+    }
+}
+
+my x = 42
+
+fn thingy(arg)
+{
+    class WTF {
+        readable baz
+
+        fn (inBaz) baz = inBaz + arg
+
+        static fn
+        {
+            println("WTF")
+        }
+    }
+    return WTF
+}
+
+println("here")
+println(Foo().bar)
+println(Foo().bar)

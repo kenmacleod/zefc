@@ -1,0 +1,54 @@
+class Foo : if (x == 42) thingy(666) else stuff(1410) {
+    fn
+    {
+        super(9000)
+    }
+
+    fn bar
+    {
+        println("bar getter")
+        my result = super.baz
+        println("result = ", result)
+        return result
+    }
+
+    static fn
+    {
+        println("Foo")
+    }
+}
+
+my x = 42
+
+fn thingy(arg)
+{
+    println("in thingy")
+    class WTF {
+        my baz
+
+        fn (inBaz)
+        {
+            println("WTF constructor!")
+            println("inBaz = ", inBaz)
+            println("arg = ", arg)
+            baz = inBaz + arg
+        }
+
+        fn baz
+        {
+            println("baz getter, baz = ", baz)
+            baz
+        }
+
+        static fn
+        {
+            println("WTF")
+        }
+    }
+    return WTF
+}
+
+println("here")
+println(thingy(5)(6).baz)
+println(Foo().bar)
+println(Foo().bar)

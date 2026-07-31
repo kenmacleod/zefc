@@ -51,7 +51,9 @@ struct Method {
 struct ClassDecl {
   std::string name;
   std::string emit_name; // C++ symbol prefix; empty → use name
-  std::string parent; // empty if none
+  std::string parent; // empty if none (static Ident parent)
+  // Non-null when parent is a dynamic expression (Zef: evaluate once at resolve).
+  ExprPtr parent_expr;
   std::vector<Field> fields;
   std::vector<Method> methods;
   // Type-nested classes (`static class` / `class` inside a class body).

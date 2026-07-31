@@ -227,7 +227,12 @@ Parser::parse_class()
   c.name = expect(TokKind::Ident, "class name").text;
   if (check(TokKind::Colon)) {
     next();
-    c.parent = expect(TokKind::Ident, "parent class").text;
+    ExprPtr pe = parse_expr();
+    if (pe->kind == Expr::Kind::Ident) {
+      c.parent = pe->text;
+    } else {
+      c.parent_expr = std::move(pe);
+    }
   }
   expect(TokKind::LBrace, "{");
   while (!check(TokKind::RBrace) && !check(TokKind::Eof)) {

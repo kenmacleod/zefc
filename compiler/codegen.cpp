@@ -139,6 +139,7 @@ struct ClassInfo {
   bool needs_outer = false;      // instance-nested: live outer instance pointer
   bool has_outer_field = false;  // emit zefc_outer on this layout (not inherited)
   bool is_type_nested = false;   // needs Class object + Class__call_o
+  bool dynamic_parent = false;   // parent chosen once via parent_expr at ensure_
 };
 
 struct FuncInfo {
@@ -211,6 +212,8 @@ struct Ctx {
   // True inside functions/lambdas/methods, or brace blocks that declare `my`.
   // When true, import(foo) overwrites local bindings; when false, existing names win.
   bool import_binds = false;
+  // Soft-fail unknown names (dynamic-parent else branches not taken at runtime).
+  bool allow_unresolved = false;
   // package name → members exported by a loaded module (e.g. foo → f,x).
   std::unordered_map<std::string, std::vector<std::string>> loaded_package_members;
 
@@ -336,7 +339,11 @@ emit_check_super_inited(Ctx& ctx, const std::string& cls)
 void
 emit_mark_super_inited(Ctx& ctx)
 {
-  if (!ctx.current_class || ctx.current_class->decl->parent.empty()) {
+  if (!ctx.current_class) {
+    return;
+  }
+  const ClassDecl* d = ctx.current_class->decl;
+  if (!d || (d->parent.empty() && !d->parent_expr && !ctx.current_class->dynamic_parent)) {
     return;
   }
   ctx.out << "  body<" << class_cpp(*ctx.current_class) << "_>(self)->zefc_super_inited = true;\n";
@@ -1178,17 +1185,26 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
       if (!ctx.current_class) {
         throw std::runtime_error("super outside subclass");
       }
-      if (ctx.current_class->decl->parent.empty()) {
+      const bool dyn = ctx.current_class->dynamic_parent;
+      if (ctx.current_class->decl->parent.empty() && !dyn) {
         // Implicit Object: bare `super` is a no-op (Zef Object has empty ctor).
         ctx.out << "  " << dst << " = self;\n";
         return;
       }
-      // Bare `super` → parent zero-arg init on same object.
-      // Mark before Parent__init: Zef sets parent Storage* before running the
-      // parent constructor (subclass methods may run during parent init).
-      const std::string& parent = ctx.current_class->decl->parent;
+      // Bare `super` → parent zero-arg init. Mark before parent runs (Zef).
       emit_mark_super_inited(ctx);
-      ctx.out << "  " << dst << " = " << parent << "__init(self, 0);\n";
+      if (dyn) {
+        const std::string cpp = class_cpp(*ctx.current_class);
+        ctx.out << "  {\n";
+        ctx.out << "    id _pcls = g_" << cpp << "_dyn_parent;\n";
+        ctx.out << "    id _psup = ZEFC_SEND0(_pcls, " << sel_expr("call_o") << ");\n";
+        ctx.out << "    body<" << cpp << "_>(self)->zefc_super = _psup;\n";
+        ctx.out << "    " << dst << " = _psup;\n";
+        ctx.out << "  }\n";
+      } else {
+        const std::string& parent = ctx.current_class->decl->parent;
+        ctx.out << "  " << dst << " = " << parent << "__init(self, 0);\n";
+      }
       return;
     }
     // Locals/params shadow fields and zero-arg getters (`my left` vs `fn left`).
@@ -1316,6 +1332,10 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
         // Dynamic: bare name → self.name (may be defined only on a subclass).
         // Only for real classes in ctx.classes (not package/closure fakes).
         emit_send(ctx, "self", mangle_method(e.text, 0), {}, dst);
+      } else if (ctx.allow_unresolved) {
+        ctx.out << "  zefc_error(\"cannot resolve get (call with no arguments) named " << e.text
+                << "\");\n";
+        ctx.out << "  " << dst << " = null_id();\n";
       } else {
         throw std::runtime_error("cannot resolve get (call with no arguments) named " + e.text);
       }
@@ -1455,13 +1475,20 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
     }
     // super.method → direct superclass method call
     if (e.lhs && e.lhs->kind == Expr::Kind::Ident && e.lhs->text == "super") {
-      if (!ctx.current_class || ctx.current_class->decl->parent.empty()) {
+      if (!ctx.current_class ||
+          (ctx.current_class->decl->parent.empty() && !ctx.current_class->dynamic_parent)) {
         throw std::runtime_error("super.method outside subclass");
       }
-      const std::string& parent = ctx.current_class->decl->parent;
       const std::string mangled = mangle_method(e.text, 0);
-      ctx.out << "  " << dst << " = " << parent << "__" << mangled << "(self, "
-              << sel_expr(mangled) << ");\n";
+      if (ctx.current_class->dynamic_parent) {
+        const std::string cpp = class_cpp(*ctx.current_class);
+        ctx.out << "  " << dst << " = ZEFC_SEND0(body<" << cpp << "_>(self)->zefc_super, "
+                << sel_expr(mangled) << ");\n";
+      } else {
+        const std::string& parent = ctx.current_class->decl->parent;
+        ctx.out << "  " << dst << " = " << parent << "__" << mangled << "(self, "
+                << sel_expr(mangled) << ");\n";
+      }
       return;
     }
     // ClassName.member → static field, nested static class, or zero-arg static method
@@ -1934,17 +1961,23 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
         throw std::runtime_error("unknown root package member `" + callee + "`");
       }
       if (e.lhs->lhs && e.lhs->lhs->kind == Expr::Kind::Ident && e.lhs->lhs->text == "super") {
-        if (!ctx.current_class || ctx.current_class->decl->parent.empty()) {
+        if (!ctx.current_class ||
+            (ctx.current_class->decl->parent.empty() && !ctx.current_class->dynamic_parent)) {
           throw std::runtime_error("super.method outside subclass");
         }
-        const std::string& parent = ctx.current_class->decl->parent;
         const std::string mangled = mangle_method(e.lhs->text, e.args.size());
-        ctx.out << "  " << dst << " = " << parent << "__" << mangled << "(self, "
-                << sel_expr(mangled);
-        for (const std::string& a : arg_tmps) {
-          ctx.out << ", " << a;
+        if (ctx.current_class->dynamic_parent) {
+          const std::string cpp = class_cpp(*ctx.current_class);
+          emit_send(ctx, "body<" + cpp + "_>(self)->zefc_super", mangled, arg_tmps, dst);
+        } else {
+          const std::string& parent = ctx.current_class->decl->parent;
+          ctx.out << "  " << dst << " = " << parent << "__" << mangled << "(self, "
+                  << sel_expr(mangled);
+          for (const std::string& a : arg_tmps) {
+            ctx.out << ", " << a;
+          }
+          ctx.out << ");\n";
         }
-        ctx.out << ");\n";
         return;
       }
       // ClassName.member(args): static method, or nested static class / field → call_o
@@ -2064,18 +2097,30 @@ emit_expr(Ctx& ctx, const Expr& e, const std::string& dst)
         if (!ctx.current_class) {
           throw std::runtime_error("super(...) outside subclass");
         }
-        if (ctx.current_class->decl->parent.empty()) {
+        const bool dyn = ctx.current_class->dynamic_parent;
+        if (ctx.current_class->decl->parent.empty() && !dyn) {
           // Implicit Object: super(...) is a no-op.
           ctx.out << "  " << dst << " = self;\n";
           return;
         }
-        const std::string& parent = ctx.current_class->decl->parent;
         emit_mark_super_inited(ctx);
-        ctx.out << "  " << dst << " = " << parent << "__init(self, 0";
-        for (const std::string& a : arg_tmps) {
-          ctx.out << ", " << a;
+        if (dyn) {
+          const std::string cpp = class_cpp(*ctx.current_class);
+          ctx.out << "  {\n";
+          ctx.out << "    id _pcls = g_" << cpp << "_dyn_parent;\n";
+          ctx.out << "    id _psup;\n";
+          emit_send(ctx, "_pcls", "call_o", arg_tmps, "_psup");
+          ctx.out << "    body<" << cpp << "_>(self)->zefc_super = _psup;\n";
+          ctx.out << "    " << dst << " = _psup;\n";
+          ctx.out << "  }\n";
+        } else {
+          const std::string& parent = ctx.current_class->decl->parent;
+          ctx.out << "  " << dst << " = " << parent << "__init(self, 0";
+          for (const std::string& a : arg_tmps) {
+            ctx.out << ", " << a;
+          }
+          ctx.out << ");\n";
         }
-        ctx.out << ");\n";
         return;
       }
       if (callee == "println" || callee == "print") {
@@ -2809,6 +2854,9 @@ collect_class_decl(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name, bo
   ClassInfo info;
   info.decl = &c;
   info.cpp_name = cpp_name;
+  if (c.parent_expr) {
+    info.dynamic_parent = true;
+  }
   for (const Field& f : c.fields) {
     if (!f.is_static) {
       info.field_names.insert(f.name);
@@ -3391,7 +3439,7 @@ emit_package(Ctx& ctx, const PackageInfo& pkg)
 void
 emit_accessor_methods(Ctx& ctx, const ClassDecl& c, const std::string& name)
 {
-  const bool need_super = !c.parent.empty();
+  const bool need_super = !c.parent.empty() || c.parent_expr != nullptr;
   for (const Field& f : c.fields) {
     if (f.is_static) {
       continue;
@@ -3493,12 +3541,20 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
   if (info->has_outer_field) {
     ctx.out << "  " << kIdType << " zefc_outer;\n";
   }
-  if (!c.parent.empty()) {
+  if (info->dynamic_parent) {
+    // Composition stand-in for dynamic inheritance (parent instance; freeze-safe).
+    ctx.out << "  " << kIdType << " zefc_super;\n";
+    ctx.out << "  bool zefc_super_inited;\n";
+  } else if (!c.parent.empty()) {
     // Trailing flag: this class called super (Zef parent Storage* link).
     ctx.out << "  bool zefc_super_inited;\n";
   }
   ctx.out << "};\n\n";
   ctx.out << "static VTable* " << name << "_vtable = nullptr;\n\n";
+  if (info->dynamic_parent) {
+    ctx.out << "static id g_" << name << "_dyn_parent = nullptr;\n";
+    ctx.out << "static bool g_" << name << "_parent_resolved = false;\n\n";
+  }
 
   if (info->has_static) {
     ctx.out << "struct " << name << "Class_ {\n  IsaPtr isa_;\n";
@@ -3719,7 +3775,7 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
       }
       ctx.out << ")\n{\n  (void)selector;\n";
       ctx.in_static_method = m.is_static;
-      if (!m.is_static && !c.parent.empty()) {
+      if (!m.is_static && (!c.parent.empty() || info->dynamic_parent)) {
         emit_check_super_inited(ctx, name);
       }
       ctx.env_params.clear();
@@ -3818,6 +3874,23 @@ emit_class(Ctx& ctx, const ClassDecl& c, const std::string& cpp_name)
     ctx.out << "  ensure_" << name << "_" << n.decl->name << "();\n";
   }
   ctx.out << "  " << name << "_vtable = vtable_create();\n";
+  if (info->dynamic_parent && c.parent_expr) {
+    // Resolve parent once before installing methods / static init (Zef ClassObject::resolve).
+    ctx.out << "  if (!g_" << name << "_parent_resolved) {\n";
+    ctx.out << "    id _par;\n";
+    {
+      const bool saved = ctx.allow_unresolved;
+      ctx.allow_unresolved = true;
+      ctx.current_class = nullptr;
+      ctx.env_params = ctx.toplevel_vars;
+      emit_expr_top(ctx, *c.parent_expr, "_par");
+      ctx.allow_unresolved = saved;
+      ctx.current_class = info;
+    }
+    ctx.out << "    g_" << name << "_dyn_parent = _par;\n";
+    ctx.out << "    g_" << name << "_parent_resolved = true;\n";
+    ctx.out << "  }\n";
+  }
   if (!c.parent.empty()) {
     emit_inherited_vtable_sets(ctx, c, name, [&](const std::string& pname) -> const ClassDecl* {
       auto it = ctx.classes.find(pname);
