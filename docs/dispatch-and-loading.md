@@ -33,7 +33,7 @@ This document is the contract for ZefC’s Orchard-style dispatch under dynamic 
 
 ### ScriptBench wall times (matched `-O2`)
 
-Machine: WSL2 x86_64, 2026-07-30. All builds `debugoptimized` (`optimization=2`). Fil-C++ 0.678; ZefC g++ = system g++. Five warm runs; approximate medians. Field IC on in all ZefC columns. Zef has no g++ build.
+Machine: WSL2 x86_64. nbody/richards/splay: 2026-07-30; deltablue: 2026-07-31. All builds `debugoptimized` (`optimization=2`). Fil-C++ 0.678; ZefC g++ = system g++. Five warm runs; approximate medians. Field IC on in all ZefC columns. Zef has no g++ build.
 
 **What is timed:** whole-process wall of the compiler-built `nbody` / `splay` / `richards` executables (init + steady combined). That is enough for dispatch A/B; we no longer split an AFTER STARTUP phase in the harness.
 
@@ -46,6 +46,7 @@ Machine: WSL2 x86_64, 2026-07-30. All builds `debugoptimized` (`optimization=2`)
 | nbody | ~0.05s | ~0.06s | ~0.06s | ~0.10s | ~0.21s |
 | richards | ~0.04s | ~0.04s | ~0.03s | *(crash — poly)* | ~0.19s |
 | splay | ~1.4s | ~0.94s | ~1.0s | ~1.4s | ~2.6s |
+| deltablue | ~0.17s | ~0.15s | ~0.19s | *(fail — poly)* | ~0.48s |
 
 **g++** (same ZefC code; unsafe / no Fil-C checks):
 
@@ -54,12 +55,13 @@ Machine: WSL2 x86_64, 2026-07-30. All builds `debugoptimized` (`optimization=2`)
 | nbody | ~0.00s | ~0.01s | ~0.01s | ~0.01s |
 | richards | ~0.00s | ~0.00s | ~0.00s | *(crash — poly)* |
 | splay | ~0.25s | ~0.16s | ~0.16s | ~0.22s |
+| deltablue | ~0.04s | ~0.03s | ~0.04s | *(crash — poly)* |
 
 **Takeaways:** `ic` vs `slots` vs `site` (where correct) stay in the noise on these benches. Unsealed `flat` paid a live-object map on every `zefc_set_isa` (splay ~3.9s Fil-C / ~0.67s g++). After `zefc_vtables_seal()`, flat init is just `isa_ = vt->slots` (class `slots→VTable*` map is create/grow only). Expect flat ≈ slots on post-seal walls; splay is field-IC / alloc dominated so the one-load send win stays noise. `site` is invalid under polymorphism (`richards`). Fil-C vs g++ remains ~5–10× on the same dispatch model. ZefC Fil-C vs Zef is still mostly AOT vs interpret.
 
 **Seal:** `zefc_vtables_seal()` marks the process closed-world: no new selectors / vtable grows; flat drops `live_objects` and never re-registers instances. Call after the last package load / last selector intern — analogous to Obj-C after dyld settles.
 
-ScriptBench cases (`nbody`, `splay`, `richards`) run via `--suite compiler`; see [test/smoke/README.md](../test/smoke/README.md).
+ScriptBench cases (`nbody`, `splay`, `richards`, `deltablue`) run via `--suite compiler` (same workload as `zef/ScriptBench`); see [test/smoke/README.md](../test/smoke/README.md).
 
 ## Non-goals (hot path)
 

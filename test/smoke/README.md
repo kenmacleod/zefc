@@ -14,7 +14,7 @@ Zef goldens and the mini String/Int/Double/Array runtime used when linking compi
 
 **Dispatch ABI** (vtable growth / `ZEFC_SITE`, not a Zef program): `meson test --suite abi` — see [test/abi/](../abi/).
 
-**ScriptBench** (`nbody`, `splay`, `richards`): timed as whole-process compiler executables (load + steady combined). Prefer `/usr/bin/time` or similar when comparing `-Dobject_dispatch=…`.
+**ScriptBench** (`nbody`, `splay`, `richards`, `deltablue`): timed as whole-process compiler executables (load + steady combined). Prefer `/usr/bin/time` or similar when comparing `-Dobject_dispatch=…`.
 
 ## Adding a language case
 
