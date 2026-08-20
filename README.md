@@ -1,5 +1,16 @@
 # ZefC
 
+> [!NOTE]
+> This project was an exploration and not intended for use.
+>
+> 20 years ago I had an idea on how to use C++-style virtual call tables in a fully dynamic language, thinking that hash-table lookup was the largest slowdown of dynamic languages at the time.  I was familiar with Objective-C's inline method cache optimization but still thought a vtable would be faster.  A narrow proof-of-concept was developed in [Orchard-C](https://github.com/kenmacleod/orchard-c) and it wasn't until I discovered [Zef](https://zef-lang.dev/) and with the aid of AI was able to implement a broad test.
+>
+> I used a transpiler approach, translating Zef language to C++, using my own vtable implementation in place of C++ method calls.  The code successfully implements mosts tests up to the ability to perform 4 of the 5 Zef benchmarks.  I focused on the method call hot path and reviewed that code closely.  (The remaining Zef to C++ translater is not reviewed, except to correct Cursor short-circuiting tests.)  Performance between Zef/JavaScript-style inline-cache and virtual table is tested within this code base using a compile-time flag to avoid external comparisons.
+>
+> The result of this exploration is that modern (x86) CPUs pipeline and branch prediction perform better with the inline cache (a la JavaScript) than with a vtable (C++ or mine).  Even though the IC hot path is one instruction longer, the CPU traverses the local cache faster than the long distance fetch to the vtable.
+>
+> My thanks to Filip Pizlo for Zef, Fil-C++, and answering a few brief questions.  Thanks to AI and Cursor in particular for handling the uninteresting details.  With those I was able to close the loop on this 20 year old idea, even if the discovery was to find that not-so modern languages and CPUs had already solved it.
+
 ZefC is a compiler that transpiles the [Zef](https://zef-lang.dev/) language to C++, targeting [Fil-C++](https://github.com/pizlonator/fil-c/) for memory safety and garbage collection. Dispatch uses shared-namespace virtual tables with selector IDs (patterns borrowed from [Orchard-C](https://github.com/kenmacleod/orchard-c)). The build does not link Zef or Orchard; opening those trees to read and port code is welcome (see Lineage).
 
 The end goal is Zef semantics with **C++-like virtual-call cost** on the hot path (~vptr + `vtable[imm]` + call), plus dynamic package loading via load-time selector patching. Vtables alone are not enough for Zef-like ScriptBench speed — see the **performance model** in [docs/dispatch-and-loading.md](docs/dispatch-and-loading.md).
