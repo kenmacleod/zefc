@@ -3,7 +3,7 @@
 > [!NOTE]
 > This project was an exploration and not intended for use.
 >
-> 20 years ago I had an idea on how to use C++-style virtual call tables in a fully dynamic language, thinking that hash-table lookup was the largest slowdown of dynamic languages at the time.  I was familiar with Objective-C's inline method cache optimization but still thought a vtable would be faster.  A narrow proof-of-concept was developed in [Orchard-C](https://github.com/kenmacleod/orchard-c) and it wasn't until I discovered [Zef](https://zef-lang.dev/) and with the aid of AI was able to implement a broad test.
+> Around 2004 I had an idea on how to use C++-style virtual call tables in a fully dynamic language by recomputing the vtables at module load time, thinking that hash-table lookup was the largest slowdown of dynamic languages at the time.  I was familiar with Objective-C's inline method cache optimization but still thought a vtable would be faster.  A narrow proof-of-concept with a vtable computed at build time was developed in [Orchard-C](https://github.com/kenmacleod/orchard-c) and it wasn't until I discovered [Zef](https://zef-lang.dev/) and with the aid of AI was able to implement a broad test.
 >
 > I used a transpiler approach, translating Zef language to C++, using my own vtable implementation in place of C++ method calls.  The code successfully implements mosts tests up to the ability to perform 4 of the 5 Zef benchmarks.  I focused on the method call hot path and reviewed that code closely.  (The remaining Zef to C++ translater is not reviewed, except to correct Cursor short-circuiting tests.)  Performance between Zef/JavaScript-style inline-cache and virtual table is tested within this code base using a compile-time flag to avoid external comparisons.
 >
